@@ -52,6 +52,20 @@
   .ncc_env$epsg <- "EPSG:32612"
 
   # -----------------------------------------------------------------------------------------------------
+  # study area parameters
+  # -----------------------------------------------------------------------------------------------------
+
+  .ncc_env$study_lat <- 43.7412
+  attr(.ncc_env$study_lat, 'unit') <- 'decimal degrees'
+  attr(.ncc_env$study_lat, 'source') <- 'Grand Teton summit — placeholder'
+  attr(.ncc_env$study_lat, 'full_name') <- 'Study area latitude for solar position calculation'
+
+  .ncc_env$study_lon <- -110.8024
+  attr(.ncc_env$study_lon, 'unit') <- 'decimal degrees'
+  attr(.ncc_env$study_lon, 'source') <- 'Grand Teton summit — placeholder'
+  attr(.ncc_env$study_lon, 'full_name') <- 'Study area longitude for solar position calculation'
+
+  # -----------------------------------------------------------------------------------------------------
   # simulation parameters
   # -----------------------------------------------------------------------------------------------------
 

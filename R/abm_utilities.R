@@ -90,6 +90,53 @@ update_agents_test <- function(agents, t) {
   agents
 }
 
+#' Determine whether a given datetime is during daylight hours
+#'
+#' @description Computes sunrise and sunset times at the study area location
+#'   using a standard solar position algorithm (NOAA), then returns TRUE if
+#'   the supplied datetime falls within that window. Latitude and longitude are
+#'   read from globals (\code{study_lat}, \code{study_lon}).
+#'
+#' @param datetime POSIXct. The datetime to evaluate. Must be in UTC.
+#'
+#' @return Logical. TRUE if datetime is between sunrise and sunset, FALSE
+#'   otherwise.
+#'
+#' @keywords internal
+is_daylight <- function(datetime) {
+
+  lat <- get_param("study_lat")
+  lon <- get_param("study_lon")
+
+  # julian day of year
+  jd <- as.integer(format(datetime, "%j"))
+
+  # fractional hour in local solar time
+  # longitude correction: 4 minutes per degree, converted to hours
+  hour_utc   <- as.numeric(format(datetime, "%H")) +
+    as.numeric(format(datetime, "%M")) / 60
+  hour_local <- hour_utc + lon / 15
+
+  # solar declination (radians)
+  declination <- 23.45 * (pi / 180) *
+    sin(2 * pi * (284 + jd) / 365)
+
+  # latitude in radians
+  lat_rad <- lat * (pi / 180)
+
+  # hour angle at sunrise/sunset (radians)
+  cos_hour_angle <- -tan(lat_rad) * tan(declination)
+
+  # clamp to [-1, 1] to avoid NaN at extreme latitudes
+  cos_hour_angle <- max(-1, min(1, cos_hour_angle))
+  hour_angle     <- acos(cos_hour_angle) * (180 / pi) / 15  # hours from solar noon
+
+  sunrise <- 12 - hour_angle
+  sunset  <- 12 + hour_angle
+
+  hour_local >= sunrise & hour_local <= sunset
+}
+
 #' Compute hourly dry matter intake via a Type II functional response
 #'
 #' @description Computes hourly DMI in grams per hour as a Michaelis-Menten

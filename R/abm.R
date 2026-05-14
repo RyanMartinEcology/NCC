@@ -122,26 +122,28 @@ ncc_abm <- function(forage_raster, agents = NULL, start_time = NULL,
       agents[[i]]$y[t] <- move_result$y
     }
 
-    # foraging phase — agents forage in the same randomized order
-    for (i in agent_order) {
+    # foraging phase — agents forage in the same randomized order, daylight only
+    if (is_daylight(current_time)) {
+      for (i in agent_order) {
 
-      # skip dead agents
-      prev_status <- t - 24L
-      if (prev_status >= 1L &&
-          !is.na(agents[[i]]$status[prev_status]) &&
-          agents[[i]]$status[prev_status] == "DEAD") next
+        # skip dead agents
+        prev_status <- t - 24L
+        if (prev_status >= 1L &&
+            !is.na(agents[[i]]$status[prev_status]) &&
+            agents[[i]]$status[prev_status] == "DEAD") next
 
-      forage_result <- simulate_forage(
-        x         = agents[[i]]$x[t],
-        y         = agents[[i]]$y[t],
-        cell_vals = cell_vals,
-        ext_vec   = ext_vec,
-        res_vec   = res_vec,
-        ncols     = ncols
-      )
+        forage_result <- simulate_forage(
+          x         = agents[[i]]$x[t],
+          y         = agents[[i]]$y[t],
+          cell_vals = cell_vals,
+          ext_vec   = ext_vec,
+          res_vec   = res_vec,
+          ncols     = ncols
+        )
 
-      cell_vals       <- forage_result$cell_vals
-      daily_forage[i] <- daily_forage[i] + forage_result$forage_consumed
+        cell_vals       <- forage_result$cell_vals
+        daily_forage[i] <- daily_forage[i] + forage_result$forage_consumed
+      }
     }
 
     # run daily state update at the end of each day
