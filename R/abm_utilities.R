@@ -4,9 +4,11 @@
 #'   Called once per day when hour == 23. Looks back 24 time steps to retrieve
 #'   the previous day's end-of-day body condition values.
 #' @param agents A named list of agent tibbles.
+#' @param agent_params A dataframe of fixed individual parameters, one row per
+#'   agent, as returned by \code{create_agents()}.
 #' @param t Integer. Current time step index (hour 23 of the current day).
 #' @keywords internal
-update_agents_test <- function(agents, t) {
+update_agents_test <- function(agents, agent_params, t) {
 
   for (i in seq_along(agents)) {
     prev <- t - 24L
@@ -23,7 +25,6 @@ update_agents_test <- function(agents, t) {
     bm_prev         <- agents[[i]]$bm[prev]
     fat_mass_prev   <- agents[[i]]$fat_mass[prev]
     fat_change_prev <- agents[[i]]$fat_change[prev]
-
 
     # check if agent dies this time step
     if (length(fat_mass_prev) == 0 || length(fat_change_prev) == 0 ||
@@ -49,7 +50,7 @@ update_agents_test <- function(agents, t) {
     # fat_mass
     agents[[i]]$fat_mass[t] <- fat_mass_prev + fat_change_prev
 
-    # j_post_partum
+    # j_post_partum — increment from agent_params initial value + days elapsed
     agents[[i]]$j_post_partum[t] <- agents[[i]]$j_post_partum[prev] + 1L
 
     # dmi: sum of forage consumed across all 24 hourly steps of the day
@@ -71,7 +72,7 @@ update_agents_test <- function(agents, t) {
     agents[[i]]$energy_rep[t] <- calc_energy_rep(
       agents[[i]]$energy_rmr[t],
       agents[[i]]$j_post_partum[t],
-      agents[[i]]$rep_status[t]
+      agent_params$rep_status[i]
     )
 
     # energy_net
@@ -162,45 +163,69 @@ dmi <- function(extracted) {
 #' Simulate random movement for a single agent
 #'
 #' @description Moves a single agent one step by drawing a step length from a
-#'   Gamma distribution and a direction from Uniform(0, 2*pi). The proposed
-#'   position is clipped to the raster extent if it falls outside.
+#'   Gamma distribution and a turn angle from a Von Mises distribution centred
+#'   on the agent's current heading. Step length and concentration parameters
+#'   are agent-specific and time-of-day dependent. The proposed position is
+#'   clipped to the raster extent if it falls outside. The agent's heading is
+#'   updated to reflect the new direction of travel.
 #'
 #' @param x Numeric. Current x coordinate in UTM Zone 12N metres.
 #' @param y Numeric. Current y coordinate in UTM Zone 12N metres.
+#' @param heading Numeric. Current heading in radians (0 to 2*pi).
+#' @param shape Numeric. Shape parameter for the Gamma step length distribution.
+#' @param scale Numeric. Scale parameter for the Gamma step length distribution.
+#' @param kappa Numeric. Concentration parameter for the Von Mises turn angle
+#'   distribution. Higher values produce more directed movement.
 #' @param ext_vec Numeric vector of length 4. Raster extent as
 #'   c(xmin, xmax, ymin, ymax).
 #' @param res_vec Numeric vector of length 2. Raster resolution as c(x, y).
-#' @param shape Numeric. Shape parameter for the Gamma step length distribution.
-#'   Default 2.
-#' @param scale Numeric. Scale parameter for the Gamma step length distribution.
-#'   Default 25.
 #'
 #' @return A named list with elements:
 #'   \describe{
 #'     \item{x}{New x coordinate.}
 #'     \item{y}{New y coordinate.}
+#'     \item{heading}{Updated heading in radians.}
+#'     \item{step_length}{Distance travelled in metres.}
 #'   }
 #'
-#' @importFrom stats rgamma runif
+#' @importFrom stats rgamma
+#' @importFrom circular rvonmises circular
 #' @keywords internal
-simulate_move <- function(x, y, ext_vec, res_vec, shape = 2, scale = 25) {
+simulate_move <- function(x, y, heading, shape, scale, kappa, ext_vec, res_vec) {
 
   # -------------------------------------------------------------------------
-  # draw step length and direction
+  # draw step length from agent-specific Gamma distribution
   # -------------------------------------------------------------------------
   step_length <- stats::rgamma(1, shape = shape, scale = scale)
-  direction   <- stats::runif(1, 0, 2 * pi)
+
+  # -------------------------------------------------------------------------
+  # draw turn angle from Von Mises centred on current heading
+  # -------------------------------------------------------------------------
+  turn_angle <- suppressWarnings(suppressMessages(
+    as.numeric(circular::rvonmises(
+      n   = 1,
+      mu  = circular::circular(0),
+      kappa = kappa
+    ))
+  ))
+
+  new_heading <- (heading + turn_angle) %% (2 * pi)
 
   # -------------------------------------------------------------------------
   # propose new position and clip to raster extent
   # -------------------------------------------------------------------------
-  x_new <- x + step_length * cos(direction)
-  y_new <- y + step_length * sin(direction)
+  x_new <- x + step_length * cos(new_heading)
+  y_new <- y + step_length * sin(new_heading)
 
   x_new <- max(ext_vec[1], min(ext_vec[2] - res_vec[1], x_new))
   y_new <- max(ext_vec[3], min(ext_vec[4] - res_vec[2], y_new))
 
-  list(x = x_new, y = y_new)
+  list(
+    x           = x_new,
+    y           = y_new,
+    heading     = new_heading,
+    step_length = step_length
+  )
 }
 
 #' Simulate forage consumption for a single agent

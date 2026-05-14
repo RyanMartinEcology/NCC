@@ -4,10 +4,13 @@
 \alias{update_agents_test}
 \title{Update agent states at the end of a simulation day}
 \usage{
-update_agents_test(agents, t)
+update_agents_test(agents, agent_params, t)
 }
 \arguments{
 \item{agents}{A named list of agent tibbles.}
+
+\item{agent_params}{A dataframe of fixed individual parameters, one row per
+agent, as returned by \code{create_agents()}.}
 
 \item{t}{Integer. Current time step index (hour 23 of the current day).}
 }

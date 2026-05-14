@@ -4,28 +4,31 @@
 #'   accumulated across 24 hourly steps before daily state updates are applied.
 #'   Agent order is randomized at each hourly step. Forage depletion carries
 #'   forward across days with seasonal decline applied multiplicatively.
+#'   Movement parameters are agent-specific and time-of-day dependent.
 #' @param forage_raster A \code{terra::SpatRaster} of forage availability in
 #'   grams per cell, with one layer per simulation day. Generated outside the
 #'   loop via \code{simulate_forage_raster()} and \code{convert_forage_units()}.
 #' @param agents Optional. A named list of agent tibbles from a previous run.
 #'   If NULL, agents are initialized from scratch.
+#' @param agent_params Optional. A dataframe of fixed individual parameters from
+#'   a previous run. Must be supplied if \code{agents} is supplied.
 #' @param start_time Optional. POSIXct. Time to resume from. If NULL, starts
 #'   from t_start.
 #' @param n_days Optional. Integer. Number of days to run the simulation. If
 #'   NULL, runs the full simulation from t_start to t_end.
 #' @param keep_time Logical. If TRUE, prints elapsed time alongside the day
 #'   completion message. Default FALSE.
-#' @param return_forage Logical. If TRUE, returns a named list with elements
-#'   \code{agents} and \code{forage_raster} (the depleted forage raster after
-#'   simulation). If FALSE, returns only the agents list. Default FALSE.
-#' @return If \code{return_forage = FALSE}, a named list of agent tibbles. If
-#'   \code{return_forage = TRUE}, a named list with elements \code{agents} and
-#'   \code{forage_raster}.
+#' @param return_forage Logical. If TRUE, the returned list includes
+#'   \code{forage_raster} (the depleted forage raster after simulation).
+#'   Default FALSE.
+#' @return A named list with elements \code{agents}, \code{agent_params}, and
+#'   optionally \code{forage_raster} if \code{return_forage = TRUE}.
 #' @importFrom lubridate hour
 #' @importFrom terra ext res ncol values setValues
 #' @export
-ncc_abm <- function(forage_raster, agents = NULL, start_time = NULL,
-                    n_days = NULL, keep_time = FALSE, return_forage = FALSE) {
+ncc_abm <- function(forage_raster, agents = NULL, agent_params = NULL,
+                    start_time = NULL, n_days = NULL,
+                    keep_time = FALSE, return_forage = FALSE) {
 
   t_start <- get_param("t_start")
   t_end   <- get_param("t_end")
@@ -35,7 +38,9 @@ ncc_abm <- function(forage_raster, agents = NULL, start_time = NULL,
 
   # initialize agents if not resuming
   if (is.null(agents)) {
-    agents <- create_agents(forage_raster)
+    init        <- create_agents(forage_raster)
+    agents      <- init$agents
+    agent_params <- init$agent_params
   }
 
   # determine starting time step
@@ -53,7 +58,7 @@ ncc_abm <- function(forage_raster, agents = NULL, start_time = NULL,
     t_end_index <- length(times)
   }
 
-  # pre-extract raster geometry — used in simulate_step() every hour
+  # pre-extract raster geometry — used in simulate_forage() every hour
   e       <- terra::ext(forage_raster)
   ext_vec <- c(e$xmin, e$xmax, e$ymin, e$ymax)
   res_vec <- terra::res(forage_raster)
@@ -99,6 +104,9 @@ ncc_abm <- function(forage_raster, agents = NULL, start_time = NULL,
       daily_forage <- rep(0, length(agents))
     }
 
+    # determine time of day once per timestep
+    daytime     <- is_daylight(current_time)
+
     # randomize agent order for this step
     agent_order <- sample(seq_along(agents))
 
@@ -111,19 +119,35 @@ ncc_abm <- function(forage_raster, agents = NULL, start_time = NULL,
           !is.na(agents[[i]]$status[prev_status]) &&
           agents[[i]]$status[prev_status] == "DEAD") next
 
+      # select day or night movement parameters for this agent
+      if (daytime) {
+        shape <- agent_params$day_shape[i]
+        scale <- agent_params$day_scale[i]
+        kappa <- agent_params$day_kappa[i]
+      } else {
+        shape <- agent_params$night_shape[i]
+        scale <- agent_params$night_scale[i]
+        kappa <- agent_params$night_kappa[i]
+      }
+
       move_result <- simulate_move(
         x       = agents[[i]]$x[t - 1L],
         y       = agents[[i]]$y[t - 1L],
+        heading = agents[[i]]$heading[t - 1L],
+        shape   = shape,
+        scale   = scale,
+        kappa   = kappa,
         ext_vec = ext_vec,
         res_vec = res_vec
       )
 
-      agents[[i]]$x[t] <- move_result$x
-      agents[[i]]$y[t] <- move_result$y
+      agents[[i]]$x[t]       <- move_result$x
+      agents[[i]]$y[t]       <- move_result$y
+      agents[[i]]$heading[t] <- move_result$heading
     }
 
     # foraging phase — agents forage in the same randomized order, daylight only
-    if (is_daylight(current_time)) {
+    if (daytime) {
       for (i in agent_order) {
 
         # skip dead agents
@@ -167,18 +191,15 @@ ncc_abm <- function(forage_raster, agents = NULL, start_time = NULL,
                                floor(elapsed_sec %% 60))
         cat("Completed:", format(current_date, "%B %d"),
             "| Elapsed:", elapsed_str, "\n")
-        cat("Completed:", format(current_date, "%B %d"), "\n")
       }
 
-      agents <- update_agents_test(agents, t)
+      agents <- update_agents_test(agents, agent_params, t)
     }
   }
 
-  if (return_forage) {
-    list(agents = agents, forage_raster = forage_raster)
-  } else {
-    agents
-  }
+  out <- list(agents = agents, agent_params = agent_params)
+  if (return_forage) out$forage_raster <- forage_raster
+  out
 }
 
 #' Run the NCC Agent-Based Model with population-level replication and carrying capacity detection
@@ -234,7 +255,8 @@ ncc_replicator <- function(parallel = FALSE, find_carrying_capacity = TRUE, ...)
     forage_i <- simulate_forage_raster()
     forage_i <- convert_forage_units(forage_i)
 
-    agents_i <- do.call(ncc_abm, c(list(forage_raster = forage_i), abm_args))
+    result_i <- do.call(ncc_abm, c(list(forage_raster = forage_i), abm_args))
+    agents_i <- result_i$agents
 
     end_ifbfat <- sapply(agents_i, function(a) {
       last_val <- tail(a$ifbfat[!is.na(a$ifbfat)], 1)

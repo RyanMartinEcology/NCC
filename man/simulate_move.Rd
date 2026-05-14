@@ -4,34 +4,42 @@
 \alias{simulate_move}
 \title{Simulate random movement for a single agent}
 \usage{
-simulate_move(x, y, ext_vec, res_vec, shape = 2, scale = 25)
+simulate_move(x, y, heading, shape, scale, kappa, ext_vec, res_vec)
 }
 \arguments{
 \item{x}{Numeric. Current x coordinate in UTM Zone 12N metres.}
 
 \item{y}{Numeric. Current y coordinate in UTM Zone 12N metres.}
 
+\item{heading}{Numeric. Current heading in radians (0 to 2*pi).}
+
+\item{shape}{Numeric. Shape parameter for the Gamma step length distribution.}
+
+\item{scale}{Numeric. Scale parameter for the Gamma step length distribution.}
+
+\item{kappa}{Numeric. Concentration parameter for the Von Mises turn angle
+distribution. Higher values produce more directed movement.}
+
 \item{ext_vec}{Numeric vector of length 4. Raster extent as
 c(xmin, xmax, ymin, ymax).}
 
 \item{res_vec}{Numeric vector of length 2. Raster resolution as c(x, y).}
-
-\item{shape}{Numeric. Shape parameter for the Gamma step length distribution.
-Default 2.}
-
-\item{scale}{Numeric. Scale parameter for the Gamma step length distribution.
-Default 25.}
 }
 \value{
 A named list with elements:
 \describe{
 \item{x}{New x coordinate.}
 \item{y}{New y coordinate.}
+\item{heading}{Updated heading in radians.}
+\item{step_length}{Distance travelled in metres.}
 }
 }
 \description{
 Moves a single agent one step by drawing a step length from a
-Gamma distribution and a direction from Uniform(0, 2*pi). The proposed
-position is clipped to the raster extent if it falls outside.
+Gamma distribution and a turn angle from a Von Mises distribution centred
+on the agent's current heading. Step length and concentration parameters
+are agent-specific and time-of-day dependent. The proposed position is
+clipped to the raster extent if it falls outside. The agent's heading is
+updated to reflect the new direction of travel.
 }
 \keyword{internal}

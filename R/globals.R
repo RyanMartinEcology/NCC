@@ -75,17 +75,7 @@
   # energy parameters
   # -----------------------------------------------------------------------------------------------------
 
-  .ncc_env$GE <- 18.8
-  attr(.ncc_env$GE, 'unit') <- 'kJ/g'
-  attr(.ncc_env$GE, 'source') <- NA
-  attr(.ncc_env$GE, 'full_name') <- 'Gross Energy'
-
-  .ncc_env$DMD <- 0.65
-  attr(.ncc_env$DMD, 'unit') <- 'Percent'
-  attr(.ncc_env$DMD, 'source') <- NA
-  attr(.ncc_env$DMD, 'full_name') <- 'Digestibility of Dry Matter'
-
-  .ncc_env$DE <- .ncc_env$GE * .ncc_env$DMD
+  .ncc_env$DE <- 11.5
   attr(.ncc_env$DE, 'unit') <- 'kJ/g'
   attr(.ncc_env$DE, 'source') <- NA
   attr(.ncc_env$DE, 'full_name') <- 'Digestible Energy'
@@ -206,24 +196,29 @@
   .ncc_env$plant_regrowth_rate <- 1 - 0.5^(1/21) #21 day half-life on 42 day recovery period Osterheild 1992
 
   # -----------------------------------------------------------------------------------------------------
-  # test parameters
+  # movement parameters — population-level log-normal distribution parameters
+  # Individual agent parameters are drawn from these in create_agents()
   # -----------------------------------------------------------------------------------------------------
 
-  .ncc_env$prop_f <- 0.72
-  attr(.ncc_env$prop_f, 'unit') <- 'Percent'
-  attr(.ncc_env$prop_f, 'source') <- 'Courtemanch 2014'
-  attr(.ncc_env$prop_f, 'full_name') <- 'Proportion of Day Spent Feeding'
+  # daytime step length (Gamma) — moderate steps, tortuous movement (foraging)
+  .ncc_env$day_shape_meanlog  <- log(2.5)
+  .ncc_env$day_shape_sdlog    <- 0.3
+  .ncc_env$day_scale_meanlog  <- log(30)
+  .ncc_env$day_scale_sdlog    <- 0.3
 
-  .ncc_env$dayl <- 13
-  attr(.ncc_env$dayl, 'unit') <- 'h'
-  attr(.ncc_env$dayl, 'source') <- NA
-  attr(.ncc_env$dayl, 'full_name') <- 'Day Length'
+  # nighttime step length (Gamma) — short steps, low concentration (resting/milling)
+  .ncc_env$night_shape_meanlog <- log(1.5)
+  .ncc_env$night_shape_sdlog   <- 0.3
+  .ncc_env$night_scale_meanlog <- log(15)
+  .ncc_env$night_scale_sdlog   <- 0.3
 
-  .ncc_env$D_d_10 <- 400
-  .ncc_env$D_d_1_10 <- 400
-  .ncc_env$D_f <- 400
-  .ncc_env$D_i_1_10 <- 400
-  .ncc_env$D_i_10 <- 400
+  # daytime Von Mises concentration — low kappa, tortuous
+  .ncc_env$day_kappa_meanlog  <- log(0.5)
+  .ncc_env$day_kappa_sdlog    <- 0.3
+
+  # nighttime Von Mises concentration — very low kappa, near-random turning
+  .ncc_env$night_kappa_meanlog <- log(0.2)
+  .ncc_env$night_kappa_sdlog   <- 0.3
 
 
 }

@@ -11,10 +11,19 @@ create_agents(forage_raster)
 extent for initializing agent starting positions.}
 }
 \value{
-A named list of tibbles, one per agent.
+A named list with elements:
+\describe{
+\item{agents}{A named list of tibbles, one per agent, containing
+time-varying state variables.}
+\item{agent_params}{A dataframe with one row per agent containing
+fixed individual parameters.}
+}
 }
 \description{
 Creates a named list where each element represents an individual
-sheep agent as a tibble with one row per simulation time step.
+sheep agent as a tibble with one row per simulation time step containing
+only time-varying state variables. Fixed individual parameters (reproductive
+status, initial body condition, movement parameters) are stored in a
+separate \code{agent_params} dataframe. Both are returned as a named list.
 }
 \keyword{internal}
