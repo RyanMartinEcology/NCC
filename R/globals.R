@@ -6,16 +6,7 @@
 .set_defaults <- function() {
 
   # -----------------------------------------------------------------------------------------------------
-  # model calibration parameters
-  # -----------------------------------------------------------------------------------------------------
-
-  .ncc_env$half_saturation <- 60
-  attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
-  attr(.ncc_env$half_saturation, 'source') <- 'Spalinger and Hobbs 1992'
-  attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response'
-
-  # -----------------------------------------------------------------------------------------------------
-  # population simulation parameters
+  # simulation parameters
   # -----------------------------------------------------------------------------------------------------
 
   .ncc_env$replicates <- 100L
@@ -37,6 +28,9 @@
   attr(.ncc_env$n_max, 'unit') <- 'Agents'
   attr(.ncc_env$n_max, 'source') <- NA
   attr(.ncc_env$n_max, 'full_name') <- 'Maximum number of agents'
+
+  .ncc_env$n_agents <- 20 # denotes current number of agents, can be updated within the model
+
   # -----------------------------------------------------------------------------------------------------
   # time parameters
   # -----------------------------------------------------------------------------------------------------
@@ -46,14 +40,10 @@
   .ncc_env$t_end <- as.POSIXct("2025-10-31", tz = "UTC") # end of simulation
 
   # -----------------------------------------------------------------------------------------------------
-  # raster parameters
+  # spatial parameters
   # -----------------------------------------------------------------------------------------------------
 
   .ncc_env$epsg <- "EPSG:32612"
-
-  # -----------------------------------------------------------------------------------------------------
-  # study area parameters
-  # -----------------------------------------------------------------------------------------------------
 
   .ncc_env$study_lat <- 43.7412
   attr(.ncc_env$study_lat, 'unit') <- 'decimal degrees'
@@ -64,12 +54,6 @@
   attr(.ncc_env$study_lon, 'unit') <- 'decimal degrees'
   attr(.ncc_env$study_lon, 'source') <- 'Grand Teton summit — placeholder'
   attr(.ncc_env$study_lon, 'full_name') <- 'Study area longitude for solar position calculation'
-
-  # -----------------------------------------------------------------------------------------------------
-  # simulation parameters
-  # -----------------------------------------------------------------------------------------------------
-
-  .ncc_env$n_agents <- 20 # denotes current number of agents, can be updated within the model
 
   # -----------------------------------------------------------------------------------------------------
   # energy parameters
@@ -196,29 +180,53 @@
   .ncc_env$plant_regrowth_rate <- 1 - 0.5^(1/21) #21 day half-life on 42 day recovery period Osterheild 1992
 
   # -----------------------------------------------------------------------------------------------------
-  # movement parameters — population-level log-normal distribution parameters
-  # Individual agent parameters are drawn from these in create_agents()
+  # model calibration parameters
   # -----------------------------------------------------------------------------------------------------
 
-  # daytime step length (Gamma) — moderate steps, tortuous movement (foraging)
-  .ncc_env$day_shape_meanlog  <- log(2.5)
-  .ncc_env$day_shape_sdlog    <- 0.3
-  .ncc_env$day_scale_meanlog  <- log(30)
-  .ncc_env$day_scale_sdlog    <- 0.3
+  .ncc_env$half_saturation <- 60
+  attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
+  attr(.ncc_env$half_saturation, 'source') <- 'Spalinger and Hobbs 1992'
+  attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response'
 
-  # nighttime step length (Gamma) — short steps, low concentration (resting/milling)
-  .ncc_env$night_shape_meanlog <- log(1.5)
-  .ncc_env$night_shape_sdlog   <- 0.3
-  .ncc_env$night_scale_meanlog <- log(15)
-  .ncc_env$night_scale_sdlog   <- 0.3
+  # -----------------------------------------------------------------------------------------------------
+  # movement parameters — population-level multivariate normal distribution
+  # PLACEHOLDER values pending empirical iSSF estimates
+  # Individual agent coefficient vectors are drawn from MVN(mvn_mu, mvn_sigma) in create_agents()
+  # Coefficients are on the iSSF log-linear scale and match make_issf_model() coefs names
+  #   sl_, log_sl_       : Gamma step-length corrections (rate, shape)
+  #   cos_ta_            : von Mises turn-angle correction (concentration)
+  #   forage_biomass     : habitat selection coefficient
+  #   escape_terrain     : habitat selection coefficient
+  #   canopy_cover       : habitat selection coefficient
+  # Order: the six coefficients above for day, then the same six for night (12 dimensions total)
+  # create_agents() splits the drawn vector into day and night blocks and strips the
+  #   _day / _night suffix so each block is named for make_issf_model() coefs
+  # -----------------------------------------------------------------------------------------------------
 
-  # daytime Von Mises concentration — low kappa, tortuous
-  .ncc_env$day_kappa_meanlog  <- log(0.5)
-  .ncc_env$day_kappa_sdlog    <- 0.3
+  mvn_names <- c("sl__day", "log_sl__day", "cos_ta__day",
+                 "forage_biomass_day", "escape_terrain_day", "canopy_cover_day",
+                 "sl__night", "log_sl__night", "cos_ta__night",
+                 "forage_biomass_night", "escape_terrain_night", "canopy_cover_night")
 
-  # nighttime Von Mises concentration — very low kappa, near-random turning
-  .ncc_env$night_kappa_meanlog <- log(0.2)
-  .ncc_env$night_kappa_sdlog   <- 0.3
+  # mean vector (placeholder)
+  .ncc_env$mvn_mu <- c(
+    sl__day              =  0.00,
+    log_sl__day          =  0.00,
+    cos_ta__day          =  0.50,
+    forage_biomass_day   =  0.40,
+    escape_terrain_day   =  0.30,
+    canopy_cover_day     = -0.20,
+    sl__night            =  0.00,
+    log_sl__night        =  0.00,
+    cos_ta__night        =  0.20,
+    forage_biomass_night =  0.10,
+    escape_terrain_night =  0.50,
+    canopy_cover_night   =  0.10
+  )
+
+  # covariance matrix (placeholder) — diagonal, off-diagonals zero pending empirical structure
+  .ncc_env$mvn_sigma <- diag(rep(0.10, 12))
+  dimnames(.ncc_env$mvn_sigma) <- list(mvn_names, mvn_names)
 
 
 }
