@@ -15,8 +15,9 @@ A named list with elements:
 \describe{
 \item{agents}{A named list of tibbles, one per agent, containing
 time-varying state variables.}
-\item{agent_params}{A dataframe with one row per agent containing
-fixed individual parameters.}
+\item{agent_params}{A tibble with one row per agent containing
+fixed individual parameters, including a single iSSF model object
+(\code{issf}) with tod_end_ interactions.}
 }
 }
 \description{

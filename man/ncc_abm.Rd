@@ -4,49 +4,8 @@
 \alias{ncc_abm}
 \title{Run the NCC Agent-Based Model}
 \usage{
-ncc_abm(
-  forage_raster,
-  agents = NULL,
-  agent_params = NULL,
-  start_time = NULL,
-  n_days = NULL,
-  keep_time = FALSE,
-  return_forage = FALSE
-)
-}
-\arguments{
-\item{forage_raster}{A \code{terra::SpatRaster} of forage availability in
-grams per cell, with one layer per simulation day. Generated outside the
-loop via \code{simulate_forage_raster()} and \code{convert_forage_units()}.}
-
-\item{agents}{Optional. A named list of agent tibbles from a previous run.
-If NULL, agents are initialized from scratch.}
-
-\item{agent_params}{Optional. A dataframe of fixed individual parameters from
-a previous run. Must be supplied if \code{agents} is supplied.}
-
-\item{start_time}{Optional. POSIXct. Time to resume from. If NULL, starts
-from t_start.}
-
-\item{n_days}{Optional. Integer. Number of days to run the simulation. If
-NULL, runs the full simulation from t_start to t_end.}
-
-\item{keep_time}{Logical. If TRUE, prints elapsed time alongside the day
-completion message. Default FALSE.}
-
-\item{return_forage}{Logical. If TRUE, the returned list includes
-\code{forage_raster} (the depleted forage raster after simulation).
-Default FALSE.}
-}
-\value{
-A named list with elements \code{agents}, \code{agent_params}, and
-optionally \code{forage_raster} if \code{return_forage = TRUE}.
+ncc_abm(forage, forage_reference, dem, canopy, escape)
 }
 \description{
-Runs the NCC agent-based model from t_start to t_end,
-iterating by t_delta. Agents move hourly and forage consumption is
-accumulated across 24 hourly steps before daily state updates are applied.
-Agent order is randomized at each hourly step. Forage depletion carries
-forward across days with seasonal decline applied multiplicatively.
-Movement parameters are agent-specific and time-of-day dependent.
+Run the NCC Agent-Based Model
 }

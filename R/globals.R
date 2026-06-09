@@ -24,20 +24,20 @@
   attr(.ncc_env$delta_n, 'source') <- NA
   attr(.ncc_env$delta_n, 'full_name') <- 'Number of agents to add per iteration'
 
-  .ncc_env$n_max <- 200L
+  .ncc_env$n_max <- 400L #CHANGE to match manuscript
   attr(.ncc_env$n_max, 'unit') <- 'Agents'
   attr(.ncc_env$n_max, 'source') <- NA
   attr(.ncc_env$n_max, 'full_name') <- 'Maximum number of agents'
 
-  .ncc_env$n_agents <- 20 # denotes current number of agents, can be updated within the model
+  .ncc_env$n_agents <- 50 # denotes current number of agents, can be updated within the model
 
   # -----------------------------------------------------------------------------------------------------
   # time parameters
   # -----------------------------------------------------------------------------------------------------
 
   .ncc_env$t_delta <- lubridate::hours(1)
-  .ncc_env$t_start <- as.POSIXct("2025-07-01", tz = "UTC") # start of simulation
-  .ncc_env$t_end <- as.POSIXct("2025-10-31", tz = "UTC") # end of simulation
+  .ncc_env$t_start <- as.POSIXct("2025-07-01", tz = "America/Denver") # start of simulation
+  .ncc_env$t_end <- as.POSIXct("2025-10-31", tz = "America/Denver") # end of simulation
 
   # -----------------------------------------------------------------------------------------------------
   # spatial parameters
@@ -45,12 +45,12 @@
 
   .ncc_env$epsg <- "EPSG:32612"
 
-  .ncc_env$study_lat <- 43.7412
+  .ncc_env$study_lat <- 43.74075
   attr(.ncc_env$study_lat, 'unit') <- 'decimal degrees'
   attr(.ncc_env$study_lat, 'source') <- 'Grand Teton summit — placeholder'
   attr(.ncc_env$study_lat, 'full_name') <- 'Study area latitude for solar position calculation'
 
-  .ncc_env$study_lon <- -110.8024
+  .ncc_env$study_lon <- -110.80252
   attr(.ncc_env$study_lon, 'unit') <- 'decimal degrees'
   attr(.ncc_env$study_lon, 'source') <- 'Grand Teton summit — placeholder'
   attr(.ncc_env$study_lon, 'full_name') <- 'Study area longitude for solar position calculation'
@@ -59,7 +59,7 @@
   # energy parameters
   # -----------------------------------------------------------------------------------------------------
 
-  .ncc_env$DE <- 11.5
+  .ncc_env$DE <- 12.98544 # this is the weighted mean of digestible energy of suitable forage biomass in vegetation transects.
   attr(.ncc_env$DE, 'unit') <- 'kJ/g'
   attr(.ncc_env$DE, 'source') <- NA
   attr(.ncc_env$DE, 'full_name') <- 'Digestible Energy'
@@ -104,6 +104,11 @@
   attr(.ncc_env$HIF, 'source') <- 'Dailey and Hobbs 1989'
   attr(.ncc_env$HIF, 'full_name') <- 'Heat Increment of Feeding'
 
+  .ncc_env$prop_day_forage <- 0.72
+  attr(.ncc_env$prop_day_forage, 'unit') <- 'proportion'
+  attr(.ncc_env$prop_day_forage, 'source') <- 'Courtemanch et al. 2014'
+  attr(.ncc_env$prop_day_forage, 'full_name') <- 'Proportion of the diurnal period spent feeding'
+
   .ncc_env$E_fat <- 39.5
   attr(.ncc_env$E_fat, 'unit') <- 'kJ/g'
   attr(.ncc_env$E_fat, 'source') <- 'Robbins 1993'
@@ -136,7 +141,7 @@
   # pregnancy and lactation parameters
   # -----------------------------------------------------------------------------------------------------
 
-  .ncc_env$rep_status <- function() rbinom(1, 1, 0.80) #user specified; CHANGE to appropriate proportion
+  .ncc_env$rep_status <- function() rbinom(1, 1, 0.678571429) #this is the proportion of captured ewes that showed some evidence of lactation
   .ncc_env$j_post_partum <- 25
   .ncc_env$lactation_modifier <- c(0.65, 0.664152312, 0.678612759, 0.693388051, 0.708485042,
                                    0.723910736, 0.739672291, 0.755777018, 0.772232391, 0.789046043,
@@ -191,41 +196,59 @@
   # -----------------------------------------------------------------------------------------------------
   # movement parameters — population-level multivariate normal distribution
   # PLACEHOLDER values pending empirical iSSF estimates
-  # Individual agent coefficient vectors are drawn from MVN(mvn_mu, mvn_sigma) in create_agents()
-  # Coefficients are on the iSSF log-linear scale and match make_issf_model() coefs names
-  #   sl_, log_sl_       : Gamma step-length corrections (rate, shape)
-  #   cos_ta_            : von Mises turn-angle correction (concentration)
-  #   forage_biomass     : habitat selection coefficient
-  #   escape_terrain     : habitat selection coefficient
-  #   canopy_cover       : habitat selection coefficient
-  # Order: the six coefficients above for day, then the same six for night (12 dimensions total)
-  # create_agents() splits the drawn vector into day and night blocks and strips the
-  #   _day / _night suffix so each block is named for make_issf_model() coefs
+  # One movement model per agent is drawn from MVN(mvn_mu, mvn_sigma) in create_agents()
+  # The model is a single make_issf_model() with tod_end_ interactions (day = reference level);
+  #   the tentative Gamma and von Mises are pooled (one set), and the day/night difference is
+  #   carried by the :tod_end_night interaction coefficients, not by separate distributions
+  #
+  # Dimensions (15), in order:
+  #   log_shape, log_scale  : pooled tentative Gamma step-length params, LOG scale (exp after draw)
+  #   log_kappa             : pooled tentative von Mises concentration, LOG scale (exp after draw)
+  #   main effects (day, reference level):
+  #     sl_, log_sl_        : Gamma step-length correction coefficients
+  #     cos_ta_             : von Mises turn-angle correction coefficient
+  #     forage_biomass, escape_terrain, canopy_cover : habitat selection coefficients
+  #   night interaction offsets (added to the main effect when tod_end_ == night):
+  #     tod_end_night:sl_, tod_end_night:log_sl_, tod_end_night:cos_ta_,
+  #     tod_end_night:forage_biomass, tod_end_night:escape_terrain, tod_end_night:canopy_cover
+  # Names are factor-first to match a fit_issf() formula of tod_end_ * (movement + habitat terms);
+  #   they must match names(coefficients) of the fitted model exactly or the kernel update lookups fail
+  # create_agents() exponentiates the three log dims to build the pooled tentative distributions;
+  #   the remaining twelve coefficients are passed to make_issf_model() coefs as one vector
   # -----------------------------------------------------------------------------------------------------
 
-  mvn_names <- c("sl__day", "log_sl__day", "cos_ta__day",
-                 "forage_biomass_day", "escape_terrain_day", "canopy_cover_day",
-                 "sl__night", "log_sl__night", "cos_ta__night",
-                 "forage_biomass_night", "escape_terrain_night", "canopy_cover_night")
+  mvn_names <- c("log_shape", "log_scale", "log_kappa",
+                 "sl_", "log_sl_", "cos_ta_",
+                 "forage_biomass", "escape_terrain", "canopy_cover",
+                 "tod_end_night:sl_", "tod_end_night:log_sl_", "tod_end_night:cos_ta_",
+                 "tod_end_night:forage_biomass", "tod_end_night:escape_terrain",
+                 "tod_end_night:canopy_cover")
 
-  # mean vector (placeholder)
+  # mean vector (placeholder); the three log dims are on the log scale
+  # main effects reproduce the prior daytime values; offsets reproduce the prior night values
+  #   (night = main + offset), e.g. cos_ta_ day 0.50, night 0.20, so offset -0.30
   .ncc_env$mvn_mu <- c(
-    sl__day              =  0.00,
-    log_sl__day          =  0.00,
-    cos_ta__day          =  0.50,
-    forage_biomass_day   =  0.40,
-    escape_terrain_day   =  0.30,
-    canopy_cover_day     = -0.20,
-    sl__night            =  0.00,
-    log_sl__night        =  0.00,
-    cos_ta__night        =  0.20,
-    forage_biomass_night =  0.10,
-    escape_terrain_night =  0.50,
-    canopy_cover_night   =  0.10
+    "log_shape"                    =  log(2.0),
+    "log_scale"                    =  log(22),
+    "log_kappa"                    =  log(0.35),
+    "sl_"                          =  0.00,
+    "log_sl_"                      =  0.00,
+    "cos_ta_"                      =  0.50,
+    "forage_biomass"               =  0.40,
+    "escape_terrain"               =  0.30,
+    "canopy_cover"                 = -0.20,
+    "tod_end_night:sl_"            =  0.00,
+    "tod_end_night:log_sl_"        =  0.00,
+    "tod_end_night:cos_ta_"        = -0.30,
+    "tod_end_night:forage_biomass" = -0.30,
+    "tod_end_night:escape_terrain" =  0.20,
+    "tod_end_night:canopy_cover"   =  0.30
   )
 
   # covariance matrix (placeholder) — diagonal, off-diagonals zero pending empirical structure
-  .ncc_env$mvn_sigma <- diag(rep(0.10, 12))
+  # log dims: variance 0.09 (= prior sdlog 0.3, squared); coefficient dims: variance 0.10
+  mvn_var <- c(0.09, 0.09, 0.09, rep(0.10, 12))
+  .ncc_env$mvn_sigma <- diag(mvn_var)
   dimnames(.ncc_env$mvn_sigma) <- list(mvn_names, mvn_names)
 
 
