@@ -218,31 +218,31 @@
   # -----------------------------------------------------------------------------------------------------
 
   mvn_names <- c("log_shape", "log_scale", "log_kappa",
-                 "sl_", "log_sl_", "cos_ta_",
-                 "forage_biomass", "escape_terrain", "canopy_cover",
-                 "tod_end_night:sl_", "tod_end_night:log_sl_", "tod_end_night:cos_ta_",
-                 "tod_end_night:forage_biomass", "tod_end_night:escape_terrain",
-                 "tod_end_night:canopy_cover")
+                 "sl_", "log(sl_)", "cos(ta_)",
+                 "forage_biomass_end", "escape_terrain_end", "canopy_cover_end",
+                 "sl_:tod_end_night_end", "log(sl_):tod_end_night_end", "cos(ta_):tod_end_night_end",
+                 "forage_biomass_end:tod_end_night_end", "escape_terrain_end:tod_end_night_end",
+                 "canopy_cover_end:tod_end_night_end")
 
   # mean vector (placeholder); the three log dims are on the log scale
   # main effects reproduce the prior daytime values; offsets reproduce the prior night values
   #   (night = main + offset), e.g. cos_ta_ day 0.50, night 0.20, so offset -0.30
   .ncc_env$mvn_mu <- c(
-    "log_shape"                    =  log(2.0),
-    "log_scale"                    =  log(22),
-    "log_kappa"                    =  log(0.35),
-    "sl_"                          =  0.00,
-    "log_sl_"                      =  0.00,
-    "cos_ta_"                      =  0.50,
-    "forage_biomass"               =  0.40,
-    "escape_terrain"               =  0.30,
-    "canopy_cover"                 = -0.20,
-    "tod_end_night:sl_"            =  0.00,
-    "tod_end_night:log_sl_"        =  0.00,
-    "tod_end_night:cos_ta_"        = -0.30,
-    "tod_end_night:forage_biomass" = -0.30,
-    "tod_end_night:escape_terrain" =  0.20,
-    "tod_end_night:canopy_cover"   =  0.30
+    "log_shape"                            =  log(2.0),
+    "log_scale"                            =  log(22),
+    "log_kappa"                            =  log(0.35),
+    "sl_"                                  =  0.00,
+    "log(sl_)"                             =  0.00,
+    "cos(ta_)"                             =  0.50,
+    "forage_biomass_end"                   =  0.40,
+    "escape_terrain_end"                   =  0.30,
+    "canopy_cover_end"                     = -0.20,
+    "sl_:tod_end_night_end"                =  0.00,
+    "log(sl_):tod_end_night_end"           =  0.00,
+    "cos(ta_):tod_end_night_end"           = -0.30,
+    "forage_biomass_end:tod_end_night_end" = -0.30,
+    "escape_terrain_end:tod_end_night_end" =  0.20,
+    "canopy_cover_end:tod_end_night_end"   =  0.30
   )
 
   # covariance matrix (placeholder) — diagonal, off-diagonals zero pending empirical structure
