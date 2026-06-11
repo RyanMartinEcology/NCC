@@ -99,9 +99,12 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
 
   if (verbose) message("3) Simulating movement and foraging")
 
-  #1) initialize per-run state: the persistent grazing deficit (g/cell, zero
-  #   everywhere), the per-time-step daylight schedule, and the dem values vector
-  #   (for cell-index elevation lookups in calc_energy_loc), all hoisted out of the loop
+  #1) initialize per-run state hoisted out of the loop: the grazing deficit, the
+  #   daylight schedule, the dem values (for calc_energy_loc), and the movement
+  #   lookups — the static escape/canopy covariate vectors, a reference layer for
+  #   cellFromXY geometry, the extent for the outside guard, and the t_delta /
+  #   n_candidates constants. the agents' shared iSSF term structure is validated
+  #   once here, since simulate_move's hand-rolled predictor assumes it
   # realized biomass on any day is potential minus this deficit; grazing adds to it
   #   and it decays each day toward zero. starts at zero (ungrazed at season start)
 
@@ -109,13 +112,21 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
   is_daylight <- get_param("is_daylight")
   dem_vals <- terra::values(dem, mat = FALSE)
 
+  escape_vals <- terra::values(escape, mat = FALSE)
+  canopy_vals <- terra::values(canopy, mat = FALSE)
+  geom_ref <- forage_reference[[1]]
+  move_ext <- as.vector(terra::ext(forage_reference))
+  move_t_delta <- get_param("t_delta")
+  move_n_candidates <- get_param("n_candidates")
+  validate_move_coefs(agent_params$issf[[1]]$coefficients)
+
   #2) loop over each simulation day
 
   for (d in seq_along(dates)) {
 
     #3) announce the current day
 
-    if (verbose) message("Day ", d, " of ", length(dates), ": ", dates[d])
+    if (verbose && (d - 1) %% 7 == 0) message("Day ", d, " of ", length(dates), ": ", dates[d])
 
     #4) build this day's realized biomass: potential minus the carried deficit
     # forage_reference holds potential biomass; realized is potential_d - deficit.
@@ -125,24 +136,24 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
     potential_d <- terra::values(forage_reference[[d]], mat = FALSE)
     vals <- potential_d - deficit
 
-    forage_layer <- forage_reference[[d]]
-    names(forage_layer) <- "forage_biomass"
-    terra::values(forage_layer) <- vals
+    #5) prebuild the day and night movement-data lists once for the day
+    # movement sees day-start realized forage: the lists capture vals here, and the
+    #   hour loop's in-place depletion of vals copy-on-writes, so the captured forage
+    #   stays frozen all day. day and night differ only in tod (0 vs 1); the static
+    #   escape/canopy/geometry/extent come from the per-run setup above
 
-    #5) prebuild the day and night covariate maps once for the day
-    # forage_layer is frozen for the day (movement sees day-start realized forage),
-    #   so both maps stay valid all day; each hour selects between them by daylight
-
-    tod_day <- forage_layer
-    names(tod_day) <- "tod_end_night"
-    values(tod_day) <- 0
-
-    tod_night <- forage_layer
-    names(tod_night) <- "tod_end_night"
-    values(tod_night) <- 1
-
-    map_day <- c(forage_layer, escape, canopy, tod_day)
-    map_night <- c(forage_layer, escape, canopy, tod_night)
+    move_day <- list(
+      geom = geom_ref,
+      forage = vals,
+      escape = escape_vals,
+      canopy = canopy_vals,
+      tod = 0,
+      ext = move_ext,
+      t_delta = move_t_delta,
+      n_candidates = move_n_candidates
+    )
+    move_night <- move_day
+    move_night$tod <- 1
 
     #6) loop over each hour within the day
 
@@ -155,10 +166,10 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
 
       time_t <- times[t]
 
-      #8) select the hour's covariate map by daylight
+      #8) select the hour's movement data by daylight
 
       is_day <- is_daylight[t]
-      map_t <- if (is_day) map_day else map_night
+      move_t <- if (is_day) move_day else move_night
 
       #9) filter to living agents and shuffle their processing order
 
@@ -201,7 +212,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
           agents[[i]]$y[t - 1],
           agents[[i]]$heading[t - 1],
           agent_params$issf[[i]],
-          map_t,
+          move_t,
           time_t
         )
         agents[[i]]$x[t] <- mv[["x"]]
@@ -218,7 +229,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
           agents[[i]]$x[t],
           agents[[i]]$y[t],
           vals,
-          forage_layer,
+          geom_ref,
           is_day
         )
         agents[[i]]$forage_consumed[t] <- fg$forage_consumed

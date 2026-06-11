@@ -4,7 +4,7 @@
 \alias{simulate_move}
 \title{Simulate one movement step for a single agent}
 \usage{
-simulate_move(x0, y0, heading0, issf, map, time)
+simulate_move(x0, y0, heading0, issf, move, time)
 }
 \arguments{
 \item{x0}{Numeric. Previous-row x coordinate (step start).}
@@ -15,24 +15,35 @@ simulate_move(x0, y0, heading0, issf, map, time)
 
 \item{issf}{The agent's iSSF model object from \code{amt::make_issf_model()}.}
 
-\item{map}{A \code{terra::SpatRaster} for the current hour with layers named to
-match the model coefficients: \code{forage_biomass}, \code{escape_terrain},
-\code{canopy_cover}, and a constant \code{tod_end_night} layer (0 day, 1 night).}
+\item{move}{A list of per-hour movement data: \code{geom} (a single-layer
+SpatRaster for \code{cellFromXY} geometry), \code{forage}, \code{escape},
+\code{canopy} (numeric covariate vectors indexed by cell), \code{tod}
+(0 day / 1 night), \code{ext} (named bbox xmin/xmax/ymin/ymax),
+\code{t_delta}, and \code{n_candidates}. The selection predictor is
+hand-rolled and assumes the twelve-term day/night structure enforced by
+\code{validate_move_coefs}.}
 
 \item{time}{The current time step (\code{POSIXct}).}
 }
 \value{
 A named numeric vector with elements \code{x}, \code{y},
-\code{step_length}, \code{turn_angle}, and \code{heading}.
+\code{step_length}, \code{turn_angle}, \code{heading}; or \code{NULL} if more
+than half the candidate endpoints fall outside the raster extent.
 }
 \description{
 Draws one movement step for a living agent from its individual
-iSSF using a redistribution kernel (Signer et al. 2024). The kernel is built
-from the agent's stored \code{make_issf_model} object and the supplied
-per-hour covariate map. One endpoint is sampled; step length, turn angle, and
-the updated heading are derived from the start and the drawn endpoint.
-Endpoints falling outside the map or on NA cells are rejected and the kernel
-is redrawn. Operates on scalars only; the caller writes the results to the
-agent's row.
+iSSF. This is a stripped, in-memory reimplementation of the continuous-case
+path of \code{amt::redistribution_kernel()}, specialized to this model:
+it draws candidate steps with amt's \code{random_steps_simple}, looks up the
+end-of-step covariates by cell index against precomputed in-memory value
+vectors (no \code{terra::extract} per call), scores them with amt's
+continuous-case weight formula inlined (no movement compensation, since
+\code{landscape = "continuous"}), and samples one endpoint. Step length,
+turn angle, and the updated heading are derived from the drawn endpoint.
+
+The candidate draw and the final sample consume the RNG in the same order
+and amount as \code{amt::redistribution_kernel()}, and \code{cellFromXY}
+returns the same nearest cell \code{terra::extract} would, so for a given
+seed the result matches the amt path.
 }
 \keyword{internal}
