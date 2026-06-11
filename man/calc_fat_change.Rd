@@ -4,23 +4,18 @@
 \alias{calc_fat_change}
 \title{Calculate daily fat-mass change}
 \usage{
-calc_fat_change(agent, time)
+calc_fat_change(net)
 }
 \arguments{
-\item{agent}{A tibble for a single agent (one row per time step), containing
-\code{datetime} and \code{energy_net}.}
-
-\item{time}{POSIXct. The 23:00 time step at which the daily change is computed.}
+\item{net}{Numeric. Daily net energy balance (kJ/day).}
 }
 \value{
-The agent tibble with \code{fat_change} (kg) set on the row at
-\code{time}.
+Numeric. Daily fat-mass change (kg).
 }
 \description{
 Converts the day's net energy balance into a change in fat mass.
 A surplus is deposited at the fat deposition efficiency; a deficit is covered
-by mobilizing fat at the fat catabolism efficiency. Reads \code{energy_net}
-from the row at \code{time}, writes \code{fat_change} (kg) to that row, and
-returns the updated tibble.
+by mobilizing fat at the fat catabolism efficiency. Operates on a scalar; the
+caller writes the returned value to the agent's row.
 }
 \keyword{internal}

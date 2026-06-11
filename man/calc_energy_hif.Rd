@@ -4,12 +4,13 @@
 \alias{calc_energy_hif}
 \title{Calculate heat increment of feeding energy expenditure}
 \usage{
-calc_energy_hif(bm, time)
+calc_energy_hif(bm, t)
 }
 \arguments{
 \item{bm}{Numeric. Body mass (kg).}
 
-\item{time}{POSIXct. Current simulation time; used to derive day of year.}
+\item{t}{Integer. Time-step index into the precomputed \code{day_length} vector
+(aligned with the hourly time sequence).}
 }
 \value{
 Numeric. Heat increment of feeding energy expenditure (kJ/day).
@@ -18,6 +19,7 @@ Numeric. Heat increment of feeding energy expenditure (kJ/day).
 Returns the daily heat increment of feeding from the Dailey and
 Hobbs (1989) per-body-mass rate, multiplied by the proportion of the diurnal
 period spent feeding (Courtemanch et al. 2014) and day length. Day length is
-computed from solar geometry using the study latitude and the day of year.
+read from the precomputed per-time-step \code{day_length} vector (set in
+\code{.set_defaults()} from study latitude and day-of-year).
 }
 \keyword{internal}

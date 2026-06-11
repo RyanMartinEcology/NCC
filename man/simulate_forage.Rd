@@ -2,36 +2,34 @@
 % Please edit documentation in R/abm_utilities.R
 \name{simulate_forage}
 \alias{simulate_forage}
-\title{Simulate forage consumption for a single agent}
+\title{Simulate one foraging step for a single agent}
 \usage{
-simulate_forage(x, y, cell_vals, ext_vec, res_vec, ncols)
+simulate_forage(x, y, vals, geom, is_day)
 }
 \arguments{
-\item{x}{Numeric. Current x coordinate in UTM Zone 12N metres.}
+\item{x}{Numeric. Agent's current x coordinate.}
 
-\item{y}{Numeric. Current y coordinate in UTM Zone 12N metres.}
+\item{y}{Numeric. Agent's current y coordinate.}
 
-\item{cell_vals}{Numeric vector. Forage availability in grams per cell for
-the current day, extracted from the raster as a plain vector.}
+\item{vals}{Numeric vector of current forage biomass (g/cell), indexed by cell
+number. Read only.}
 
-\item{ext_vec}{Numeric vector of length 4. Raster extent as
-c(xmin, xmax, ymin, ymax).}
+\item{geom}{A single-layer \code{terra::SpatRaster} supplying the grid geometry
+for \code{cellFromXY} (the day-start forage layer). Not modified.}
 
-\item{res_vec}{Numeric vector of length 2. Raster resolution as c(x, y).}
-
-\item{ncols}{Integer. Number of columns in the raster.}
+\item{is_day}{Logical. Whether the current hour is daylight.}
 }
 \value{
-A named list with elements:
-\describe{
-\item{forage_consumed}{Grams of forage consumed at this step.}
-\item{cell_vals}{Updated forage values vector after consumption.}
-}
+A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),
+and \code{cell} (the depleted cell index, or NA at night).
 }
 \description{
-Extracts forage availability at the agent's current position,
-computes hourly DMI via a Type II functional response using \code{dmi()},
-consumes the lesser of hourly DMI and available forage, and decrements
-the cell values vector in place.
+Foraging for a living agent at its current cell. During daylight,
+reads the forage density at the agent's position from the working values
+vector \code{vals}, computes consumed dry matter intake via \code{calc_dmi}
+(floored at available biomass), and converts the consumed intake to energy via
+\code{calc_energy_i}. At night no foraging occurs and intake is zero. Reads
+\code{vals} but does not modify it (to avoid copying the whole vector); the
+caller performs the in-place cell depletion using the returned \code{cell}.
 }
 \keyword{internal}

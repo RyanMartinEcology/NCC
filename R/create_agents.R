@@ -44,8 +44,10 @@ draw_movement_params <- function() {
 #'   status, initial body condition, movement parameters) are stored in a
 #'   separate \code{agent_params} dataframe. Both are returned as a named list.
 #'
-#' @param forage_raster A \code{terra::SpatRaster}. Used to define the spatial
-#'   extent for initializing agent starting positions.
+#' @param forage_raster A \code{terra::SpatRaster}. Used to define the set of
+#'   valid (non-NA) cells available for initializing agent starting positions.
+#' @param dem A \code{terra::SpatRaster} of elevation in meters. Used to restrict
+#'   starting positions to a target elevation band.
 #'
 #' @return A named list with elements:
 #'   \describe{
@@ -58,7 +60,7 @@ draw_movement_params <- function() {
 #'
 #' @importFrom stats rnorm runif
 #' @keywords internal
-create_agents <- function(forage_raster) {
+create_agents <- function(forage_raster, dem) {
 
   n <- get_param("n_agents")
   t_start <- get_param("t_start")
@@ -83,24 +85,33 @@ create_agents <- function(forage_raster) {
   agent_params <- dplyr::tibble(
     id = ids,
     rep_status = rep_status,
-    j_post_partum = get_param("j_post_partum"),
+    j_post_partum = ifelse(rep_status == 1, get_param("j_post_partum"), NA_real_),
     bm_init = bm,
     ifbfat_init = ifbfat,
     issf = issf
   )
 
-  # draw random starting positions from raster extent
-  e <- terra::ext(forage_raster)
-  x_init <- stats::runif(
+  # place agents on any valid cell whose elevation falls in the 10000-11500 ft band
+  # dem is in meters, so convert the band: 10000 ft = 3048 m, 11500 ft = 3505.2 m
+  # (1 ft = 0.3048 m); cells outside the study polygon are NA in forage and excluded
+  elev_min <- 10000 * 0.3048
+  elev_max <- 11500 * 0.3048
+
+  ref <- forage_raster[[1]]
+  ref_cells <- which(!is.na(terra::values(ref, mat = FALSE)))
+  ref_xy <- terra::xyFromCell(ref, ref_cells)
+
+  elev <- terra::extract(dem, ref_xy)[, 1]
+  in_band <- !is.na(elev) & elev >= elev_min & elev <= elev_max
+  start_xy <- ref_xy[in_band, , drop = FALSE]
+
+  start_idx <- sample(
+    nrow(start_xy),
     n,
-    e$xmin,
-    e$xmax
+    replace = nrow(start_xy) < n
   )
-  y_init <- stats::runif(
-    n,
-    e$ymin,
-    e$ymax
-  )
+  x_init <- start_xy[start_idx, 1]
+  y_init <- start_xy[start_idx, 2]
 
   # build agent tibbles — time-varying state only
   agents <- vector("list", n)
@@ -124,9 +135,7 @@ create_agents <- function(forage_raster) {
       ifbfat = NA_real_,
       lean_mass = NA_real_,
       fat_mass = NA_real_,
-      j_post_partum = NA_real_,
       forage_consumed = NA_real_,
-      dmi = NA_real_,
       energy_i = NA_real_,
       daily_intake = NA_real_,
       energy_bmr = NA_real_,
@@ -151,18 +160,13 @@ create_agents <- function(forage_raster) {
     empty_rows$ifbfat[1] <- ifbfat_i
     empty_rows$lean_mass[1] <- calc_lean_mass(bm_i, ifbfat_i)
     empty_rows$fat_mass[1] <- calc_fat_mass(bm_i, ifbfat_i)
-    empty_rows$j_post_partum[1] <- get_param("j_post_partum")
     empty_rows$energy_bmr[1] <- calc_energy_bmr(bm_i)
-    empty_rows$energy_hif[1] <- calc_energy_hif(bm_i, t_start)
+    empty_rows$energy_hif[1] <- calc_energy_hif(bm_i, 1L)
     empty_rows$energy_loc[1] <- 0
-    empty_rows$energy_i[1] <- calc_energy_i(
-      x_init[i],
-      y_init[i],
-      t_start
-    )
+    empty_rows$energy_i[1] <- 0
     empty_rows$energy_rep[1] <- calc_energy_rep(
       empty_rows$energy_bmr[1],
-      empty_rows$j_post_partum[1],
+      agent_params$j_post_partum[i],
       rep_status[i]
     )
     empty_rows$forage_consumed[1] <- 0

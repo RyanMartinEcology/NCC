@@ -1,321 +1,165 @@
-#' Update agent states at the end of a simulation day
-#' @description Updates all agents in the list at the end of each simulation
-#'   day using forage consumed across the 24 hourly steps of that day.
-#'   Called once per day when hour == 23. Looks back 24 time steps to retrieve
-#'   the previous day's end-of-day body condition values.
-#' @param agents A named list of agent tibbles.
-#' @param agent_params A dataframe of fixed individual parameters, one row per
-#'   agent, as returned by \code{create_agents()}.
-#' @param t Integer. Current time step index (hour 23 of the current day).
+#' Simulate one movement step for a single agent
+#'
+#' @description Draws one movement step for a living agent from its individual
+#'   iSSF using a redistribution kernel (Signer et al. 2024). The kernel is built
+#'   from the agent's stored \code{make_issf_model} object and the supplied
+#'   per-hour covariate map. One endpoint is sampled; step length, turn angle, and
+#'   the updated heading are derived from the start and the drawn endpoint.
+#'   Endpoints falling outside the map or on NA cells are rejected and the kernel
+#'   is redrawn. Operates on scalars only; the caller writes the results to the
+#'   agent's row.
+#'
+#' @param x0 Numeric. Previous-row x coordinate (step start).
+#' @param y0 Numeric. Previous-row y coordinate (step start).
+#' @param heading0 Numeric. Previous-row heading (radians); the turn-angle reference.
+#' @param issf The agent's iSSF model object from \code{amt::make_issf_model()}.
+#' @param map A \code{terra::SpatRaster} for the current hour with layers named to
+#'   match the model coefficients: \code{forage_biomass}, \code{escape_terrain},
+#'   \code{canopy_cover}, and a constant \code{tod_end_night} layer (0 day, 1 night).
+#' @param time The current time step (\code{POSIXct}).
+#'
+#' @return A named numeric vector with elements \code{x}, \code{y},
+#'   \code{step_length}, \code{turn_angle}, and \code{heading}.
+#'
+#' @importFrom amt make_start redistribution_kernel
 #' @keywords internal
-update_agents_test <- function(agents, agent_params, t) {
+simulate_move <- function(x0, y0, heading0, issf, map, time) {
 
-  for (i in seq_along(agents)) {
-    prev <- t - 24L
+  # ----------------------------------------------------------------------------------------------------------------------
+  # build the start
+  # ----------------------------------------------------------------------------------------------------------------------
 
-    # check last known status by walking back to last non-NA status
-    last_known <- tail(which(!is.na(agents[[i]]$status[1:prev])), 1)
+  #1) construct the sim_start from current position, heading, and time
 
-    if (length(last_known) > 0 && agents[[i]]$status[last_known] == "DEAD") {
-      agents[[i]]$status[t] <- "DEAD"
-      next
-    }
+  start <- amt::make_start(
+    c(x0, y0),
+    ta_ = heading0,
+    time = time,
+    dt = get_param("t_delta")
+  )
 
-    # pull previous end-of-day values
-    bm_prev         <- agents[[i]]$bm[prev]
-    fat_mass_prev   <- agents[[i]]$fat_mass[prev]
-    fat_change_prev <- agents[[i]]$fat_change[prev]
+  # ----------------------------------------------------------------------------------------------------------------------
+  # draw a step
+  # ----------------------------------------------------------------------------------------------------------------------
 
-    # check if agent dies this time step
-    if (length(fat_mass_prev) == 0 || length(fat_change_prev) == 0 ||
-        is.na(fat_mass_prev) || is.na(fat_change_prev)) {
-      agents[[i]]$status[t] <- "ALIVE"
-    } else if ((fat_mass_prev + fat_change_prev) < 0) {
-      agents[[i]]$status[t] <- "DEAD"
-    } else {
-      agents[[i]]$status[t] <- "ALIVE"
-    }
+  #1) draw one step from the kernel
+  # candidates that land on NA cells (masked, or past the raster extent) receive zero weight
+  #   inside ssf_weights, so a valid cell is sampled without a rejection step.
+  # tolerance.outside = 0.5 lets up to half the candidate endpoints spill past the rectangular
+  #   extent before the kernel aborts; the default of 0 aborts on a single out-of-extent
+  #   candidate, which corrupts the agent position and triggers a downstream "missing value"
+  #   error on the following step. note that if more than 50% spill the kernel still returns
+  #   NULL, so a deeply cornered agent can still terminate the run (no stay-put guard yet)
 
-    if (agents[[i]]$status[t] == "DEAD") next
+  n_candidates <- get_param("n_candidates")
 
-    # bm
-    agents[[i]]$bm[t] <- bm_prev + fat_change_prev
+  rdk <- amt::redistribution_kernel(
+    issf,
+    start = start,
+    map = map,
+    n.control = n_candidates,
+    n.sample = 1,
+    landscape = "continuous",
+    as.rast = FALSE,
+    tolerance.outside = 0.5
+  )
 
-    # ifbfat
-    agents[[i]]$ifbfat[t] <- (fat_mass_prev + fat_change_prev) / agents[[i]]$bm[t]
+  x1 <- rdk$redistribution.kernel$x_
+  y1 <- rdk$redistribution.kernel$y_
 
-    # lean_mass
-    agents[[i]]$lean_mass[t] <- calc_lean_mass(agents[[i]]$bm[t], agents[[i]]$ifbfat[t])
+  # ----------------------------------------------------------------------------------------------------------------------
+  # derive movement quantities
+  # ----------------------------------------------------------------------------------------------------------------------
 
-    # fat_mass
-    agents[[i]]$fat_mass[t] <- fat_mass_prev + fat_change_prev
+  #1) step length is the euclidean distance from start to endpoint
 
-    # j_post_partum — increment from agent_params initial value + days elapsed
-    agents[[i]]$j_post_partum[t] <- agents[[i]]$j_post_partum[prev] + 1L
+  step_length <- sqrt((x1 - x0)^2 + (y1 - y0)^2)
 
-    # dmi: sum of forage consumed across all 24 hourly steps of the day
-    agents[[i]]$dmi[t] <- agents[[i]]$forage_consumed[t]
+  #2) absolute bearing of the realized step
 
-    # energy_i
-    agents[[i]]$energy_i[t] <- calc_energy_i(agents[[i]]$forage_consumed[t])
+  bearing <- atan2(y1 - y0, x1 - x0)
 
-    # energy_rmr
-    agents[[i]]$energy_rmr[t] <- calc_energy_rmr(agents[[i]]$bm[t])
+  #3) turn angle is the bearing relative to the previous heading, wrapped to (-pi, pi]
 
-    # energy_hif
-    agents[[i]]$energy_hif[t] <- calc_energy_hif(agents[[i]]$bm[t])
+  turn_angle <- atan2(sin(bearing - heading0), cos(bearing - heading0))
 
-    # energy_loc
-    agents[[i]]$energy_loc[t] <- calc_energy_loc(agents[[i]]$bm[t])
+  # ----------------------------------------------------------------------------------------------------------------------
+  # return the movement quantities
+  # ----------------------------------------------------------------------------------------------------------------------
 
-    # energy_rep
-    agents[[i]]$energy_rep[t] <- calc_energy_rep(
-      agents[[i]]$energy_rmr[t],
-      agents[[i]]$j_post_partum[t],
-      agent_params$rep_status[i]
-    )
+  #1) the caller writes these to the agent's row
 
-    # energy_net
-    agents[[i]]$energy_net[t] <- calc_energy_net(
-      agents[[i]]$energy_i[t],
-      agents[[i]]$energy_rmr[t],
-      agents[[i]]$energy_hif[t],
-      agents[[i]]$energy_loc[t],
-      agents[[i]]$energy_rep[t]
-    )
-
-    # fat_change
-    agents[[i]]$fat_change[t] <- calc_fat_change(agents[[i]]$energy_net[t])
-  }
-
-  agents
+  c(
+    x = x1,
+    y = y1,
+    step_length = step_length,
+    turn_angle = turn_angle,
+    heading = bearing
+  )
 }
 
 
-#' Simulate forage consumption for a single agent
+#' Simulate one foraging step for a single agent
 #'
-#' @description Extracts forage availability at the agent's current position,
-#'   computes hourly DMI via a Type II functional response using \code{dmi()},
-#'   consumes the lesser of hourly DMI and available forage, and decrements
-#'   the cell values vector in place.
+#' @description Foraging for a living agent at its current cell. During daylight,
+#'   reads the forage density at the agent's position from the working values
+#'   vector \code{vals}, computes consumed dry matter intake via \code{calc_dmi}
+#'   (floored at available biomass), and converts the consumed intake to energy via
+#'   \code{calc_energy_i}. At night no foraging occurs and intake is zero. Reads
+#'   \code{vals} but does not modify it (to avoid copying the whole vector); the
+#'   caller performs the in-place cell depletion using the returned \code{cell}.
 #'
-#' @param x Numeric. Current x coordinate in UTM Zone 12N metres.
-#' @param y Numeric. Current y coordinate in UTM Zone 12N metres.
-#' @param cell_vals Numeric vector. Forage availability in grams per cell for
-#'   the current day, extracted from the raster as a plain vector.
-#' @param ext_vec Numeric vector of length 4. Raster extent as
-#'   c(xmin, xmax, ymin, ymax).
-#' @param res_vec Numeric vector of length 2. Raster resolution as c(x, y).
-#' @param ncols Integer. Number of columns in the raster.
+#' @param x Numeric. Agent's current x coordinate.
+#' @param y Numeric. Agent's current y coordinate.
+#' @param vals Numeric vector of current forage biomass (g/cell), indexed by cell
+#'   number. Read only.
+#' @param geom A single-layer \code{terra::SpatRaster} supplying the grid geometry
+#'   for \code{cellFromXY} (the day-start forage layer). Not modified.
+#' @param is_day Logical. Whether the current hour is daylight.
 #'
-#' @return A named list with elements:
-#'   \describe{
-#'     \item{forage_consumed}{Grams of forage consumed at this step.}
-#'     \item{cell_vals}{Updated forage values vector after consumption.}
-#'   }
+#' @return A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),
+#'   and \code{cell} (the depleted cell index, or NA at night).
 #'
+#' @importFrom terra cellFromXY
 #' @keywords internal
-simulate_forage <- function(x, y, cell_vals, ext_vec, res_vec, ncols) {
+simulate_forage <- function(x, y, vals, geom, is_day) {
 
-  # -------------------------------------------------------------------------
-  # compute cell id from coordinates without calling terra
-  # -------------------------------------------------------------------------
-  col_id  <- floor((x - ext_vec[1]) / res_vec[1]) + 1L
-  row_id  <- floor((ext_vec[4] - y) / res_vec[2]) + 1L
-  cell_id <- (row_id - 1L) * ncols + col_id
+  # ----------------------------------------------------------------------------------------------------------------------
+  # night gate
+  # ----------------------------------------------------------------------------------------------------------------------
 
-  # guard against NA cells — treat as empty
-  forage_avail <- ifelse(is.na(cell_vals[cell_id]), 0, cell_vals[cell_id])
+  #1) at night no foraging occurs
 
-  # -------------------------------------------------------------------------
-  # compute hourly dmi and consume lesser of dmi and available forage
-  # -------------------------------------------------------------------------
-  hourly_dmi      <- dmi(forage_avail)
-  forage_consumed <- min(hourly_dmi, forage_avail)
+  if (!is_day) {
+    return(list(forage_consumed = 0, energy_i = 0, cell = NA_integer_))
+  }
 
-  # -------------------------------------------------------------------------
-  # decrement cell values vector in place
-  # -------------------------------------------------------------------------
-  cell_vals[cell_id] <- forage_avail - forage_consumed
+  # ----------------------------------------------------------------------------------------------------------------------
+  # read density at the current cell
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) locate the cell and read its current biomass from the vector
+
+  cell <- terra::cellFromXY(geom, cbind(x, y))
+  density <- vals[cell]
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # compute intake and energy
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) consumed dry matter intake, floored at available biomass inside calc_dmi
+
+  consumed <- calc_dmi(density)
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # return intake, energy, and the cell for the caller to deplete
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) the caller writes forage_consumed and energy_i and depletes vals[cell]
 
   list(
-    forage_consumed = forage_consumed,
-    cell_vals       = cell_vals
+    forage_consumed = consumed,
+    energy_i = calc_energy_i(consumed),
+    cell = cell
   )
-}
-
-#' Plot IFB Fat Through Time and End-of-Season Distribution
-#' @description Two-panel plot: left panel shows ingesta-free body fat through
-#' time for all agents colored by reproductive status; right panel shows a
-#' density plot of final ifbfat values with rep_status-specific means.
-#' @param agents A named list of agent tibbles from a completed simulation.
-#' @return A patchwork ggplot object.
-#' @export
-plot_result_test <- function(agents) {
-
-  plot_data <- dplyr::bind_rows(agents) |>
-    dplyr::filter(status == "ALIVE", !is.na(ifbfat)) |>
-    dplyr::mutate(rep_status = factor(rep_status,
-                                      levels = c(0, 1),
-                                      labels = c("Non-Lactating", "Lactating")))
-
-  final_data <- plot_data |>
-    dplyr::filter(!is.na(ifbfat)) |>
-    dplyr::group_by(id) |>
-    dplyr::slice_max(datetime, n = 1) |>
-    dplyr::ungroup()
-
-  means_data <- final_data |>
-    dplyr::group_by(rep_status) |>
-    dplyr::summarise(mean_ifbfat = mean(ifbfat, na.rm = TRUE), .groups = "drop")
-
-  colors <- c("Non-Lactating" = "#2166AC", "Lactating" = "#D6604D")
-
-  p1 <- ggplot2::ggplot(plot_data, ggplot2::aes(x = datetime, y = ifbfat,
-                                                group = id, color = rep_status)) +
-    ggplot2::geom_line(alpha = 0.6) +
-    ggplot2::scale_color_manual(values = colors) +
-    ggplot2::labs(x = "Date", y = "Ingesta-Free Body Fat (Percent)",
-                  color = "Reproductive Status") +
-    ggplot2::theme_classic() +
-    ggplot2::theme(legend.position = "none")
-
-  p2 <- ggplot2::ggplot(final_data, ggplot2::aes(x = ifbfat, fill = rep_status,
-                                                 color = rep_status)) +
-    ggplot2::geom_density(alpha = 0.4) +
-    ggplot2::geom_vline(data = means_data,
-                        ggplot2::aes(xintercept = mean_ifbfat, color = rep_status),
-                        linetype = "dashed", linewidth = 0.8) +
-    ggplot2::scale_color_manual(values = colors) +
-    ggplot2::scale_fill_manual(values = colors) +
-    ggplot2::labs(x = "Early Winter Ingesta-Free Body Fat (Percent)", y = "Density",
-                  color = "Reproductive Status", fill = "Reproductive Status") +
-    ggplot2::theme_classic()
-
-  p1 + p2 + patchwork::plot_layout(guides = "collect")
-}
-
-##' Plot histogram of end-of-season forage depletion
-#' @description Plots a histogram of cell-wise differences between the last
-#'   layer of the before and after forage rasters, representing end-of-season
-#'   forage depletion per cell due to agent consumption.
-#' @param forage_before A \code{terra::SpatRaster} with one layer per simulation
-#'   day, with values in grams per cell, before simulation.
-#' @param forage_after A \code{terra::SpatRaster} with one layer per simulation
-#'   day, with values in grams per cell, after simulation.
-#' @return A ggplot object.
-#' @export
-plot_forage <- function(forage_before, forage_after) {
-
-  n_layers <- terra::nlyr(forage_before)
-
-  diff_data <- dplyr::tibble(
-    depletion = as.vector(terra::values(forage_before[[n_layers]])) -
-      as.vector(terra::values(forage_after[[n_layers]]))
-  )
-
-  ggplot2::ggplot(diff_data, ggplot2::aes(x = depletion)) +
-    ggplot2::geom_histogram(fill = "#D6604D", color = "white", bins = 40) +
-    ggplot2::labs(x     = "Forage depletion (g/cell)",
-                  y     = "Count",
-                  title = "End-of-season forage depletion per cell") +
-    ggplot2::theme_classic()
-}
-
-#' Plot Daily Dry Matter Intake Through Time
-#' @description Plots daily dry matter intake through time for all agents
-#'   colored by reproductive status.
-#' @param agents A named list of agent tibbles from a completed simulation.
-#' @return A ggplot object.
-#' @export
-plot_dmi <- function(agents) {
-
-  plot_data <- dplyr::bind_rows(agents) |>
-    dplyr::filter(status == "ALIVE", !is.na(dmi)) |>
-    dplyr::mutate(rep_status = factor(rep_status,
-                                      levels = c(0, 1),
-                                      labels = c("Non-Lactating", "Lactating")))
-
-  means_data <- plot_data |>
-    dplyr::group_by(rep_status, datetime) |>
-    dplyr::summarise(mean_dmi = mean(dmi, na.rm = TRUE), .groups = "drop")
-
-  colors <- c("Non-Lactating" = "#2166AC", "Lactating" = "#D6604D")
-
-  ggplot2::ggplot() +
-    ggplot2::geom_line(data = plot_data,
-                       ggplot2::aes(x = datetime, y = dmi,
-                                    group = id, color = rep_status),
-                       alpha = 0.3) +
-    ggplot2::geom_line(data = means_data,
-                       ggplot2::aes(x = datetime, y = mean_dmi,
-                                    color = rep_status),
-                       linewidth = 1.2) +
-    ggplot2::scale_color_manual(values = colors) +
-    ggplot2::labs(x = "Date", y = "Dry Matter Intake (g/day)",
-                  color = "Reproductive Status") +
-    ggplot2::theme_classic()
-}
-
-#' Plot global mean ifbfat as a function of number of agents
-#' @description Plots the global mean end-of-season ifbfat across replicates
-#'   as a function of number of agents, with a horizontal line indicating the
-#'   carrying capacity threshold. If the number of replicates is >= 3, a 95%
-#'   confidence interval is plotted around the mean.
-#' @param output A named list returned by \code{ncc_replicator()}.
-#' @return A ggplot object.
-#' @export
-plot_replicator <- function(output) {
-
-  carrying_capacity <- as.numeric(get_param("carrying_capacity"))
-  replicates        <- as.integer(get_param("replicates"))
-
-  # compute summary statistics per agent level
-  summary_data <- output$results |>
-    dplyr::group_by(n_agents) |>
-    dplyr::summarise(
-      sd_ifbfat   = sd(mean_ifbfat, na.rm = TRUE),
-      mean_ifbfat = mean(mean_ifbfat, na.rm = TRUE),
-      n           = dplyr::n(),
-      .groups     = "drop"
-    ) |>
-    dplyr::mutate(
-      se       = sd_ifbfat / sqrt(n),
-      ci_lower = ifelse(n >= 3, mean_ifbfat - qt(0.975, df = n - 1) * se, NA_real_),
-      ci_upper = ifelse(n >= 3, mean_ifbfat + qt(0.975, df = n - 1) * se, NA_real_)
-    )
-
-  p <- ggplot2::ggplot(summary_data,
-                       ggplot2::aes(x = n_agents, y = mean_ifbfat)) +
-    ggplot2::geom_hline(yintercept = carrying_capacity,
-                        linetype   = "dashed",
-                        color      = "#D6604D",
-                        linewidth  = 0.8) +
-    ggplot2::annotate("text",
-                      x      = min(summary_data$n_agents),
-                      y      = carrying_capacity,
-                      label  = paste("Carrying capacity threshold:", carrying_capacity),
-                      hjust  = 0,
-                      vjust  = -0.5,
-                      color  = "#D6604D",
-                      size   = 3.5)
-
-  # add confidence interval ribbon if replicates >= 3
-  if (replicates >= 3 && any(!is.na(summary_data$ci_lower))) {
-    p <- p +
-      ggplot2::geom_ribbon(ggplot2::aes(ymin = ci_lower, ymax = ci_upper),
-                           fill  = "#2166AC",
-                           alpha = 0.2,
-                           na.rm = TRUE)
-  }
-
-  p <- p +
-    ggplot2::geom_line(color     = "#2166AC", linewidth = 1) +
-    ggplot2::geom_point(color    = "#2166AC", size      = 3) +
-    ggplot2::labs(x     = "Number of agents",
-                  y     = "Global mean ifbfat",
-                  title = "Nutritional carrying capacity") +
-    ggplot2::theme_classic()
-
-  p
 }

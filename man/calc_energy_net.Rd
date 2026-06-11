@@ -4,24 +4,33 @@
 \alias{calc_energy_net}
 \title{Calculate daily net energy balance}
 \usage{
-calc_energy_net(agent, time)
+calc_energy_net(
+  energy_i_window,
+  energy_bmr,
+  energy_hif,
+  energy_loc,
+  energy_rep
+)
 }
 \arguments{
-\item{agent}{A tibble for a single agent (one row per time step), containing
-\code{datetime}, \code{energy_i}, and the daily expenditure columns
-\code{energy_bmr}, \code{energy_hif}, \code{energy_loc}, \code{energy_rep}.}
+\item{energy_i_window}{Numeric vector of the day's 24 hourly energy intakes (kJ).}
 
-\item{time}{POSIXct. The 23:00 time step at which the daily balance is computed.}
+\item{energy_bmr}{Numeric. Daily basal metabolic energy expenditure (kJ/day).}
+
+\item{energy_hif}{Numeric. Daily heat increment of feeding (kJ/day).}
+
+\item{energy_loc}{Numeric. Daily locomotion energy expenditure (kJ/day).}
+
+\item{energy_rep}{Numeric. Daily lactation energy expenditure (kJ/day).}
 }
 \value{
-The agent tibble with \code{daily_intake} and \code{energy_net} set on
-the row at \code{time}.
+A named numeric vector with elements \code{daily_intake} and
+\code{energy_net} (kJ/day).
 }
 \description{
 Sums the day's hourly energy intake and subtracts the daily
 expenditure terms (basal metabolism, heat increment of feeding, locomotion,
-lactation) to give net energy balance. The day is the 24 hourly rows ending
-at and including \code{time}. Writes \code{daily_intake} and \code{energy_net}
-to that day's 23:00 row and returns the updated tibble.
+lactation) to give net energy balance. Operates on scalars and the day's
+intake vector; the caller writes the returned values to the agent's row.
 }
 \keyword{internal}

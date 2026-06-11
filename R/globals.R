@@ -56,6 +56,34 @@
   attr(.ncc_env$study_lon, 'full_name') <- 'Study area longitude for solar position calculation'
 
   # -----------------------------------------------------------------------------------------------------
+  # daylight schedule — precomputed logical, one entry per hourly time step
+  # geometric sunrise/sunset from study latitude and day-of-year (clock noon ~ solar noon)
+  # positionally aligned with seq(t_start, t_end, by = t_delta); index by loop position t
+  # NOTE: computed at load from current t_start/t_end/t_delta/study_lat; if those change,
+  #   rerun .set_defaults() to refresh this vector
+  # -----------------------------------------------------------------------------------------------------
+
+  daylight_times <- seq(
+    .ncc_env$t_start,
+    .ncc_env$t_end,
+    by = as.numeric(.ncc_env$t_delta, units = "secs")
+  )
+
+  daylight_lat_rad <- .ncc_env$study_lat * pi / 180
+  daylight_doy <- lubridate::yday(daylight_times)
+  daylight_decl <- 0.409 * sin(2 * pi / 365 * daylight_doy - 1.39)
+  daylight_half_day <- (12 / pi) * acos(-tan(daylight_lat_rad) * tan(daylight_decl))
+  daylight_hour <- lubridate::hour(daylight_times) + lubridate::minute(daylight_times) / 60
+
+  .ncc_env$is_daylight <- daylight_hour >= (12 - daylight_half_day) &
+    daylight_hour <= (12 + daylight_half_day)
+
+  # day length (hours) per time step, aligned with is_daylight; index by loop position t.
+  # depends only on day-of-year, so it is constant within a day. this is exactly the
+  #   day_length calc_energy_hif() used to recompute per call: (24/pi)*acos(...) = 2 * half-day
+  .ncc_env$day_length <- 2 * daylight_half_day
+
+  # -----------------------------------------------------------------------------------------------------
   # energy parameters
   # -----------------------------------------------------------------------------------------------------
 
@@ -188,7 +216,12 @@
   # model calibration parameters
   # -----------------------------------------------------------------------------------------------------
 
-  .ncc_env$half_saturation <- 60
+  .ncc_env$max_dmi <- 372
+  attr(.ncc_env$max_dmi, 'unit') <- 'g/hour'
+  attr(.ncc_env$max_dmi, 'source') <- NA
+  attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
+
+  .ncc_env$half_saturation <- 13000
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
   attr(.ncc_env$half_saturation, 'source') <- 'Spalinger and Hobbs 1992'
   attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response'
@@ -197,25 +230,41 @@
   # movement parameters — population-level multivariate normal distribution
   # PLACEHOLDER values pending empirical iSSF estimates
   # One movement model per agent is drawn from MVN(mvn_mu, mvn_sigma) in create_agents()
-  # The model is a single make_issf_model() with tod_end_ interactions (day = reference level);
+  # The model is a single make_issf_model() with day/night carried by tod_end_night interactions;
   #   the tentative Gamma and von Mises are pooled (one set), and the day/night difference is
-  #   carried by the :tod_end_night interaction coefficients, not by separate distributions
+  #   carried by the :tod_end_night_end interaction coefficients, not by separate distributions
+  #
+  # Naming convention (required for redistribution_kernel() to evaluate the model):
+  #   geometry transforms use call form — log(sl_), cos(ta_) — so the kernel computes them
+  #     from the sl_ and ta_ columns it generates for each candidate step; a bare log_sl_ /
+  #     cos_ta_ name fails because the kernel looks for a column of that literal name
+  #   habitat terms use the _end suffix (forage_biomass_end, etc.) to bind to the end-of-step
+  #     covariate extraction (fun = extract_covariates(where = "both"))
+  #   day/night is supplied as a constant raster layer named tod_end_night in the per-hour map
+  #     (NOT via the covars argument, which does not reach the formula evaluation in this amt
+  #     version); interactions therefore reference its end-of-step extraction, tod_end_night_end
+  #   interactions are geometry-first (e.g. cos(ta_):tod_end_night_end) to match the kernel-tested
+  #     form; the fitting code must produce these exact names or the MVN means map to wrong terms
   #
   # Dimensions (15), in order:
   #   log_shape, log_scale  : pooled tentative Gamma step-length params, LOG scale (exp after draw)
   #   log_kappa             : pooled tentative von Mises concentration, LOG scale (exp after draw)
-  #   main effects (day, reference level):
-  #     sl_, log_sl_        : Gamma step-length correction coefficients
-  #     cos_ta_             : von Mises turn-angle correction coefficient
-  #     forage_biomass, escape_terrain, canopy_cover : habitat selection coefficients
-  #   night interaction offsets (added to the main effect when tod_end_ == night):
-  #     tod_end_night:sl_, tod_end_night:log_sl_, tod_end_night:cos_ta_,
-  #     tod_end_night:forage_biomass, tod_end_night:escape_terrain, tod_end_night:canopy_cover
-  # Names are factor-first to match a fit_issf() formula of tod_end_ * (movement + habitat terms);
-  #   they must match names(coefficients) of the fitted model exactly or the kernel update lookups fail
+  #   main effects (day, tod_end_night = 0):
+  #     sl_, log(sl_)       : Gamma step-length correction coefficients
+  #     cos(ta_)            : von Mises turn-angle correction coefficient
+  #     forage_biomass_end, escape_terrain_end, canopy_cover_end : habitat selection coefficients
+  #   night interaction offsets (added to the main effect when tod_end_night_end == 1):
+  #     sl_:tod_end_night_end, log(sl_):tod_end_night_end, cos(ta_):tod_end_night_end,
+  #     forage_biomass_end:tod_end_night_end, escape_terrain_end:tod_end_night_end,
+  #     canopy_cover_end:tod_end_night_end
   # create_agents() exponentiates the three log dims to build the pooled tentative distributions;
   #   the remaining twelve coefficients are passed to make_issf_model() coefs as one vector
   # -----------------------------------------------------------------------------------------------------
+
+  .ncc_env$n_candidates <- 25L
+  attr(.ncc_env$n_candidates, 'unit') <- 'candidate steps'
+  attr(.ncc_env$n_candidates, 'source') <- NA
+  attr(.ncc_env$n_candidates, 'full_name') <- 'Number of candidate steps drawn per redistribution kernel'
 
   mvn_names <- c("log_shape", "log_scale", "log_kappa",
                  "sl_", "log(sl_)", "cos(ta_)",
@@ -227,6 +276,15 @@
   # mean vector (placeholder); the three log dims are on the log scale
   # main effects reproduce the prior daytime values; offsets reproduce the prior night values
   #   (night = main + offset), e.g. cos_ta_ day 0.50, night 0.20, so offset -0.30
+  # the sl_ night offset (-0.0455) halves the mean step length at night: it raises the gamma
+  #   rate from 1/22 to 1/11, holding shape, so mean falls from 2*22 = 44 m to 2*11 = 22 m
+  # escape_terrain_end is calibrated to the covariate range (0 to ~0.353): day 8.0 gives
+  #   exp(8.0*0.353) ~ 16.8x preference for max- vs min-escape cells, night 11.0 (offset +3.0)
+  #   gives exp(11.0*0.353) ~ 48.6x, so selection is strong day and night, stronger at night
+  # forage_biomass_end is calibrated to the covariate range (~500 to 360000, clamped): day
+  #   2e-6 gives exp(2e-6*359500) ~ 2x preference for richest vs poorest cells (weak), night
+  #   -1.0e-5 (offset -1.2e-5) gives exp(-1.0e-5*359500) ~ 1/36, so day is weak selection
+  #   and night is strong avoidance of high-forage cells
   .ncc_env$mvn_mu <- c(
     "log_shape"                            =  log(2.0),
     "log_scale"                            =  log(22),
@@ -234,20 +292,29 @@
     "sl_"                                  =  0.00,
     "log(sl_)"                             =  0.00,
     "cos(ta_)"                             =  0.50,
-    "forage_biomass_end"                   =  0.40,
-    "escape_terrain_end"                   =  0.30,
-    "canopy_cover_end"                     = -0.20,
-    "sl_:tod_end_night_end"                =  0.00,
+    "forage_biomass_end"                   =  2e-6,
+    "escape_terrain_end"                   =  8.00,
+    "canopy_cover_end"                     = -0.05,
+    "sl_:tod_end_night_end"                = -0.0455,
     "log(sl_):tod_end_night_end"           =  0.00,
     "cos(ta_):tod_end_night_end"           = -0.30,
-    "forage_biomass_end:tod_end_night_end" = -0.30,
-    "escape_terrain_end:tod_end_night_end" =  0.20,
-    "canopy_cover_end:tod_end_night_end"   =  0.30
+    "forage_biomass_end:tod_end_night_end" = -1.2e-5,
+    "escape_terrain_end:tod_end_night_end" =  3.00,
+    "canopy_cover_end:tod_end_night_end"   =  0.00
   )
 
   # covariance matrix (placeholder) — diagonal, off-diagonals zero pending empirical structure
-  # log dims: variance 0.09 (= prior sdlog 0.3, squared); coefficient dims: variance 0.10
-  mvn_var <- c(0.09, 0.09, 0.09, rep(0.10, 12))
+  # log dims keep variance 0.09 (= prior sdlog 0.3, squared); the geometry-correction dims
+  #   (sl_, log(sl_), cos(ta_), day and night) keep variance 0.10; the habitat-selection dims
+  #   use an among-individual CV of 0.20, var = (0.20 * mean)^2, so their spread scales with
+  #   the rescaled means (the canopy night offset has mean 0, so it is floored at 1e-4)
+  mvn_var <- c(
+    0.09, 0.09, 0.09,
+    0.10, 0.10, 0.10,
+    (0.20 * 2e-6)^2, (0.20 * 8.00)^2, (0.20 * 0.05)^2,
+    0.10, 0.10, 0.10,
+    (0.20 * 1.2e-5)^2, (0.20 * 3.00)^2, 1e-4
+  )
   .ncc_env$mvn_sigma <- diag(mvn_var)
   dimnames(.ncc_env$mvn_sigma) <- list(mvn_names, mvn_names)
 

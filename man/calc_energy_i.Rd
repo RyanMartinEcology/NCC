@@ -4,23 +4,16 @@
 \alias{calc_energy_i}
 \title{Calculate hourly energy intake}
 \usage{
-calc_energy_i(x, y, time)
+calc_energy_i(dmi)
 }
 \arguments{
-\item{x}{Numeric. Agent x coordinate (in the forage raster CRS).}
-
-\item{y}{Numeric. Agent y coordinate (in the forage raster CRS).}
-
-\item{time}{POSIXct. Current simulation time; selects the forage layer by date.}
+\item{dmi}{Numeric. Consumed dry matter intake (g/hour), from \code{calc_dmi}.}
 }
 \value{
 Numeric. Metabolizable energy intake (kJ/hour).
 }
 \description{
-Returns the hourly metabolizable energy intake at the agent's
-current cell. Dry matter intake is a Michaelis-Menten functional response of
-forage density (g/cell) with a 372 g/hour asymptote, then converted to energy
-via digestible energy and the digestible-to-metabolizable conversion factor.
-The forage layer is selected by matching the date of \code{time}.
+Converts consumed dry matter intake to metabolizable energy via
+digestible energy and the digestible-to-metabolizable conversion factor.
 }
 \keyword{internal}

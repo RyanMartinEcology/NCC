@@ -4,11 +4,14 @@
 \alias{create_agents}
 \title{Create and initialize agent population}
 \usage{
-create_agents(forage_raster)
+create_agents(forage_raster, dem)
 }
 \arguments{
-\item{forage_raster}{A \code{terra::SpatRaster}. Used to define the spatial
-extent for initializing agent starting positions.}
+\item{forage_raster}{A \code{terra::SpatRaster}. Used to define the set of
+valid (non-NA) cells available for initializing agent starting positions.}
+
+\item{dem}{A \code{terra::SpatRaster} of elevation in meters. Used to restrict
+starting positions to a target elevation band.}
 }
 \value{
 A named list with elements:

@@ -4,7 +4,11 @@
 \alias{ncc_abm}
 \title{Run the NCC Agent-Based Model}
 \usage{
-ncc_abm(forage, forage_reference, dem, canopy, escape)
+ncc_abm(forage_reference, dem, canopy, escape, verbose = TRUE)
+}
+\arguments{
+\item{verbose}{Logical. If \code{TRUE} (the default), progress messages are
+printed as the simulation runs; if \code{FALSE}, all messages are suppressed.}
 }
 \description{
 Run the NCC Agent-Based Model
