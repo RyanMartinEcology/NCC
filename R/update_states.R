@@ -75,7 +75,9 @@ update_mass <- function(bm, ifbfat, fat_change) {
 
   bm_new <- lean_mass + fat_mass
 
-  c(bm = bm_new, ifbfat = fat_mass / bm_new)
+  # unname the values so the two elements carry exactly the names the caller reads
+  #   by (bm, ifbfat); a named input would otherwise compound the names
+  c(bm = unname(bm_new), ifbfat = unname(fat_mass / bm_new))
 }
 
 #' Update survival status from fat reserves and advance days post partum
@@ -95,6 +97,16 @@ update_mass <- function(bm, ifbfat, fat_change) {
 #'
 #' @keywords internal
 update_status <- function(fat_mass, j_post_partum) {
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # survival and days post partum
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) survival: an agent dies once its fat reserves are exhausted (fat mass at or below zero)
+
   status <- if (fat_mass <= 0) "DEAD" else "ALIVE"
+
+  #2) advance the days-post-partum counter by one day; NA stays NA for non-reproductive agents
+
   list(status = status, j_post_partum = j_post_partum + 1)
 }

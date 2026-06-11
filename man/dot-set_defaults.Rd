@@ -2,11 +2,21 @@
 % Please edit documentation in R/globals.R
 \name{.set_defaults}
 \alias{.set_defaults}
-\title{Set default model parameters}
+\title{Populate the parameter environment with model defaults}
 \usage{
 .set_defaults()
 }
+\value{
+Called for its side effect of populating \code{.ncc_env}; the return value is
+not used.
+}
 \description{
-Set default model parameters
+Writes every default model parameter into \code{.ncc_env}: simulation and
+time settings, the study-area location, the precomputed daylight schedule, the
+energetic and body-condition constants, the pregnancy and lactation schedule, plant
+and calibration parameters, and the population-level movement distribution. Run once
+at load by \code{.onLoad()}; call again by hand to refresh the derived daylight
+vectors after changing any time or location parameter. Most scalars carry
+\code{unit}, \code{source}, and \code{full_name} attributes that document the value.
 }
 \keyword{internal}

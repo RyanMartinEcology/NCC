@@ -183,12 +183,16 @@ simulate_move <- function(x0, y0, heading0, issf, move, time) {
   bearing <- atan2(y1 - y0, x1 - x0)
   turn_angle <- atan2(sin(bearing - heading0), cos(bearing - heading0))
 
+  #3) return the step, stripping any names amt attached to the candidate columns so
+  #   the five elements carry exactly the names the caller writes by (x, y,
+  #   step_length, turn_angle, heading)
+
   c(
-    x = x1,
-    y = y1,
-    step_length = step_length,
-    turn_angle = turn_angle,
-    heading = bearing
+    x = unname(x1),
+    y = unname(y1),
+    step_length = unname(step_length),
+    turn_angle = unname(turn_angle),
+    heading = unname(bearing)
   )
 }
 

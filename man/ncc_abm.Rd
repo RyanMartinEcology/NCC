@@ -4,11 +4,22 @@
 \alias{ncc_abm}
 \title{Run the NCC Agent-Based Model}
 \usage{
-ncc_abm(forage_reference, dem, canopy, escape, verbose = TRUE)
+ncc_abm(
+  forage_reference,
+  dem,
+  canopy,
+  escape,
+  verbose = TRUE,
+  report_time = FALSE
+)
 }
 \arguments{
 \item{verbose}{Logical. If \code{TRUE} (the default), progress messages are
 printed as the simulation runs; if \code{FALSE}, all messages are suppressed.}
+
+\item{report_time}{Logical. If \code{TRUE}, the wall-clock run time and the
+\code{n_candidates} setting are printed when the run finishes; defaults to
+\code{FALSE}.}
 }
 \description{
 Run the NCC Agent-Based Model

@@ -29,9 +29,9 @@ summary_abm <- function(result) {
 
   rep_status <- agent_params$rep_status[match(names(agents), agent_params$id)]
 
-  #2) collapse each agent's hourly tibble to one row per day
-  # daily values (energy_net, daily_intake) sit on the day's last row; distance is
-  #   the day's summed hourly step length; a day counts only while the agent is alive
+  #2) collapse each agent's hourly tibble to one row per day: daily values (energy_net,
+  #   daily_intake) sit on the day's last row, distance is the day's summed hourly step
+  #   length, and a day counts only while the agent is alive
 
   day_table <- do.call(rbind, lapply(seq_along(agents), function(i) {
 
@@ -137,8 +137,14 @@ summary_abm <- function(result) {
 
 #' Print an NCC agent-based model summary
 #'
+#' @description Formats a \code{summary_abm} object as a readable console summary:
+#'   agent count and survival, ending body condition broken out by reproductive
+#'   status, and monthly tables of net energy, dry matter intake, and distance moved.
+#'
 #' @param x An object of class \code{summary_abm} from \code{summary_abm}.
 #' @param ... Ignored.
+#'
+#' @return The input \code{x}, invisibly.
 #'
 #' @export
 print.summary_abm <- function(x, ...) {
@@ -335,81 +341,3 @@ plot_abm <- function(result, forage_reference) {
   )
 }
 
-#' Heat map of total forage consumed across the season
-#'
-#' @description Pools every agent's hourly \code{forage_consumed} at its
-#'   location and sums it into a raster grid, producing a heat map of total
-#'   forage removed across the whole simulation. Cells never visited are left
-#'   blank.
-#'
-#' @param result A list returned by \code{ncc_abm}.
-#' @param forage_reference The forage SpatRaster passed to \code{ncc_abm}; used
-#'   for the extent and coordinate reference of the output grid.
-#' @param resolution Numeric. Grid cell size in map units (meters), defaulting
-#'   to 1000 (1 km cells). Use a smaller value for a finer surface.
-#'
-#' @return A ggplot object: a heat map of summed forage consumption (g per cell).
-#'
-#' @export
-forage_heatmap <- function(result, forage_reference, resolution = 1000) {
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # pool consumption points across all agents
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) every hourly position and the forage consumed there
-
-  pts <- do.call(rbind, lapply(result$agents, function(a) {
-    data.frame(x = a$x, y = a$y, consumed = a$forage_consumed)
-  }))
-
-  #2) drop rows with no location or no consumption record
-
-  pts <- pts[!is.na(pts$x) & !is.na(pts$consumed), , drop = FALSE]
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # sum consumption into a grid
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) target grid at the requested resolution over the landscape extent
-
-  template <- terra::rast(
-    terra::ext(forage_reference),
-    resolution = resolution,
-    crs = terra::crs(forage_reference)
-  )
-
-  #2) rasterize, summing consumed grams per cell
-
-  pts_v <- terra::vect(
-    pts,
-    geom = c("x", "y"),
-    crs = terra::crs(forage_reference)
-  )
-
-  heat <- terra::rasterize(
-    pts_v,
-    template,
-    field = "consumed",
-    fun = "sum",
-    background = NA
-  )
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # build the heat map
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) long data frame of visited cells
-
-  heat_df <- as.data.frame(heat, xy = TRUE, na.rm = TRUE)
-  names(heat_df)[3] <- "consumed"
-
-  #2) themed raster plot
-
-  ggplot(heat_df, aes(x, y, fill = consumed)) +
-    geom_raster() +
-    scale_fill_viridis_c(name = "forage consumed (g)") +
-    coord_fixed() +
-    labs(title = "Forage consumed", x = NULL, y = NULL) +
-    theme_martin(base_size = 14)
-}

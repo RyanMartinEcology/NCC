@@ -9,8 +9,14 @@ set_param(param, value)
 \arguments{
 \item{param}{Character string. Name of the parameter.}
 
-\item{value}{New value.}
+\item{value}{New value to store; any type.}
+}
+\value{
+The assigned \code{value}, invisibly.
 }
 \description{
-Set or override a global model parameter
+Writes a value into the package parameter environment, creating the
+parameter if it does not exist and replacing it if it does. Used to override a
+default at run time, for example raising \code{n_agents} or \code{n_candidates} for
+a particular run.
 }

@@ -9,6 +9,13 @@ get_param(param)
 \arguments{
 \item{param}{Character string. Name of the parameter.}
 }
+\value{
+The stored parameter value, of whatever type it was set to, or \code{NULL} if
+the parameter is not set.
+}
 \description{
-Get a global model parameter
+Returns a parameter from the package parameter environment exactly as
+stored, including any \code{unit}, \code{source}, and \code{full_name} attributes.
+Parameters stored as draw functions (for example \code{ifbf} and \code{rep_status})
+are returned as the function itself; use \code{draw_param()} to obtain a drawn value.
 }

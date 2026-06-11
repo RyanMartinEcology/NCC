@@ -1,22 +1,143 @@
+# ------------------------------------------------------------------------------------------------------------------------
+# internal agent-state representation
+# ------------------------------------------------------------------------------------------------------------------------
+
+# during simulation each agent's time-varying state is held in a numeric matrix (one row per
+#   hourly step, one column per state variable) rather than a tibble. single-cell writes into a
+#   matrix are far cheaper than into a tbl_df, and the hourly move / forage / carry-forward writes
+#   dominate the run. agents are converted back to tibbles before ncc_abm returns, so every
+#   downstream consumer (summary_abm, plot_abm) is unaffected.
+#
+# status is character in the output but is encoded as a numeric code in the matrix; datetime and
+#   id are constant down the rows and are restored on conversion back to tibbles.
+
+.status_alive <- 1
+.status_dead <- 0
+
+# the matrix columns: every tibble column except datetime and id, with status encoded numerically.
+#   ordering here is the matrix layout only; the output tibble column order is set in agents_to_tibble
+.agent_cols <- c(
+  "status", "x", "y", "heading", "step_length", "turn_angle",
+  "bm", "ifbfat", "lean_mass", "fat_mass", "forage_consumed", "energy_i",
+  "daily_intake", "energy_bmr", "energy_hif", "energy_loc", "energy_rep",
+  "energy_net", "fat_change"
+)
+
+#' Convert agent tibbles to numeric state matrices
+#'
+#' @description Converts each per-agent tibble from \code{create_agents} into a numeric matrix of
+#'   time-varying state for fast in-loop writes. The character \code{status} column is encoded as a
+#'   numeric code (\code{.status_alive} / \code{.status_dead}, \code{NA} for unset rows); the
+#'   constant \code{datetime} and \code{id} columns are dropped and restored on conversion back.
+#'
+#' @param agents A named list of per-agent tibbles.
+#'
+#' @return A named list of numeric matrices, one per agent, with columns \code{.agent_cols}.
+#'
+#' @keywords internal
+agents_to_matrix <- function(agents) {
+  lapply(agents, function(a) {
+
+    m <- matrix(
+      NA_real_,
+      nrow = nrow(a),
+      ncol = length(.agent_cols),
+      dimnames = list(NULL, .agent_cols)
+    )
+
+    status_code <- rep(NA_real_, nrow(a))
+    status_code[which(a$status == "ALIVE")] <- .status_alive
+    status_code[which(a$status == "DEAD")] <- .status_dead
+    m[, "status"] <- status_code
+
+    for (col in .agent_cols[-1]) {
+      m[, col] <- a[[col]]
+    }
+
+    m
+  })
+}
+
+#' Convert agent state matrices back to tibbles
+#'
+#' @description Rebuilds the per-agent output tibbles from the internal numeric matrices, restoring
+#'   the constant \code{datetime} and \code{id} columns and decoding the numeric \code{status} code
+#'   back to \code{"ALIVE"} / \code{"DEAD"} / \code{NA}. The column set and order match
+#'   \code{create_agents} exactly, so the result is value-identical to running the model on tibbles.
+#'
+#' @param agents_m A named list of per-agent state matrices.
+#' @param times The hourly \code{POSIXct} sequence shared by all agents (the \code{datetime} column).
+#'
+#' @return A named list of per-agent tibbles.
+#'
+#' @keywords internal
+agents_to_tibble <- function(agents_m, times) {
+
+  ids <- names(agents_m)
+
+  out <- lapply(seq_along(agents_m), function(i) {
+
+    m <- agents_m[[i]]
+
+    status <- rep(NA_character_, nrow(m))
+    status[which(m[, "status"] == .status_alive)] <- "ALIVE"
+    status[which(m[, "status"] == .status_dead)] <- "DEAD"
+
+    dplyr::tibble(
+      datetime = times,
+      id = ids[i],
+      status = status,
+      x = m[, "x"],
+      y = m[, "y"],
+      heading = m[, "heading"],
+      step_length = m[, "step_length"],
+      turn_angle = m[, "turn_angle"],
+      bm = m[, "bm"],
+      ifbfat = m[, "ifbfat"],
+      lean_mass = m[, "lean_mass"],
+      fat_mass = m[, "fat_mass"],
+      forage_consumed = m[, "forage_consumed"],
+      energy_i = m[, "energy_i"],
+      daily_intake = m[, "daily_intake"],
+      energy_bmr = m[, "energy_bmr"],
+      energy_hif = m[, "energy_hif"],
+      energy_loc = m[, "energy_loc"],
+      energy_rep = m[, "energy_rep"],
+      energy_net = m[, "energy_net"],
+      fat_change = m[, "fat_change"]
+    )
+  })
+
+  names(out) <- ids
+  out
+}
+
 #' Run the NCC Agent-Based Model
 #'
 #' @param verbose Logical. If \code{TRUE} (the default), progress messages are
 #'   printed as the simulation runs; if \code{FALSE}, all messages are suppressed.
+#' @param report_time Logical. If \code{TRUE}, the wall-clock run time and the
+#'   \code{n_candidates} setting are printed when the run finishes; defaults to
+#'   \code{FALSE}.
 #'
 #' @export
-ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
+ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE, report_time = FALSE) {
 
   # ------------------------------------------------------------------------------------------------------------------------
   # resolve time parameters
   # ------------------------------------------------------------------------------------------------------------------------
 
-  #1) pull time parameters from globals
+  #1) start the run clock (read at the end for the optional run-time report)
+
+  start_time <- Sys.time()
+
+  #2) pull time parameters from globals
 
   t_start <- get_param("t_start")
   t_end <- get_param("t_end")
   t_delta <- get_param("t_delta")
 
-  #2) build hourly time sequence
+  #3) build hourly time sequence
 
   times <- seq(
     t_start,
@@ -24,7 +145,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
     by = as.numeric(t_delta, units = "secs")
   )
 
-  #3) build daily date sequence in America/Denver
+  #4) build daily date sequence in America/Denver
 
   dates <- seq(
     as.Date(t_start, tz = "America/Denver"),
@@ -93,6 +214,11 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
   agents <- init$agents
   agent_params <- init$agent_params
 
+  #2) convert each agent to a numeric state matrix for fast in-loop writes; the matrices are
+  #   converted back to tibbles just before the function returns
+
+  agents <- agents_to_matrix(agents)
+
   # ------------------------------------------------------------------------------------------------------------------------
   # simulate daily and hourly dynamics
   # ------------------------------------------------------------------------------------------------------------------------
@@ -104,7 +230,8 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
   #   lookups — the static escape/canopy covariate vectors, a reference layer for
   #   cellFromXY geometry, the extent for the outside guard, and the t_delta /
   #   n_candidates constants. the agents' shared iSSF term structure is validated
-  #   once here, since simulate_move's hand-rolled predictor assumes it
+  #   once here, since simulate_move's hand-rolled predictor assumes it. the matrix column
+  #   indices used in the hour loop are resolved just below
   # realized biomass on any day is potential minus this deficit; grazing adds to it
   #   and it decays each day toward zero. starts at zero (ungrazed at season start)
 
@@ -120,15 +247,35 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
   move_n_candidates <- get_param("n_candidates")
   validate_move_coefs(agent_params$issf[[1]]$coefficients)
 
-  #2) loop over each simulation day
+  #2) column indices into the agent matrices, resolved once. integer indexing drops the per-write
+  #   column-name lookup in the hour loop and removes any chance of a name-subscript error
+  status_idx <- match("status", .agent_cols)
+  x_idx <- match("x", .agent_cols)
+  y_idx <- match("y", .agent_cols)
+  heading_idx <- match("heading", .agent_cols)
+  step_length_idx <- match("step_length", .agent_cols)
+  turn_angle_idx <- match("turn_angle", .agent_cols)
+  bm_idx <- match("bm", .agent_cols)
+  ifbfat_idx <- match("ifbfat", .agent_cols)
+  energy_i_idx <- match("energy_i", .agent_cols)
+  body_idx <- match(c("bm", "ifbfat", "lean_mass", "fat_mass"), .agent_cols)
+  move_names <- c("x", "y", "step_length", "turn_angle", "heading")
+  move_idx <- match(move_names, .agent_cols)
+  forage_idx <- match(c("forage_consumed", "energy_i"), .agent_cols)
+  energy_idx <- match(
+    c("energy_bmr", "energy_hif", "energy_loc", "energy_rep", "daily_intake", "energy_net", "fat_change"),
+    .agent_cols
+  )
+
+  #3) loop over each simulation day
 
   for (d in seq_along(dates)) {
 
-    #3) announce the current day
+    #4) announce the current day
 
     if (verbose && (d - 1) %% 7 == 0) message("Day ", d, " of ", length(dates), ": ", dates[d])
 
-    #4) build this day's realized biomass: potential minus the carried deficit
+    #5) build this day's realized biomass: potential minus the carried deficit
     # forage_reference holds potential biomass; realized is potential_d - deficit.
     #   vals is the day-start realized biomass and depletes within the day as agents
     #   forage
@@ -136,7 +283,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
     potential_d <- terra::values(forage_reference[[d]], mat = FALSE)
     vals <- potential_d - deficit
 
-    #5) prebuild the day and night movement-data lists once for the day
+    #6) prebuild the day and night movement-data lists once for the day
     # movement sees day-start realized forage: the lists capture vals here, and the
     #   hour loop's in-place depletion of vals copy-on-writes, so the captured forage
     #   stays frozen all day. day and night differ only in tod (0 vs 1); the static
@@ -155,90 +302,91 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
     move_night <- move_day
     move_night$tod <- 1
 
-    #6) loop over each hour within the day
+    #7) loop over each hour within the day
 
     for (h in 1:24) {
 
-      #7) absolute hour index across the season; skip the initialized first row
+      #8) absolute hour index across the season; skip the initialized first row
 
       t <- (d - 1) * 24 + h
       if (t < 2 || t > length(times)) next
 
       time_t <- times[t]
 
-      #8) select the hour's movement data by daylight
+      #9) select the hour's movement data by daylight
 
       is_day <- is_daylight[t]
       move_t <- if (is_day) move_day else move_night
 
-      #9) filter to living agents and shuffle their processing order
+      #10) filter to living agents and shuffle their processing order
 
       living <- which(
         vapply(
           agents,
-          function(a) a$status[t - 1] == "ALIVE",
+          function(a) a[t - 1, status_idx] == .status_alive,
           logical(1)
         )
       )
       living <- sample(living)
 
-      #10) carry status forward for living agents
+      #11) carry status forward for living agents
       # at the first hour of a day, status comes from the previous day's last row
       #   (where the survival check was recorded); within a day it is constant
 
       for (i in living) {
-        agents[[i]]$status[t] <- agents[[i]]$status[t - 1]
+        agents[[i]][t, status_idx] <- agents[[i]][t - 1, status_idx]
       }
 
-      #11) carry body state forward within the day
+      #12) carry body state forward within the day
       # the first hour of each day already holds the body state: set by
       #   create_agents on day 1, and by the previous day's energetics
       #   propagation thereafter, so this runs only from the second hour onward
 
       if (h > 1) {
         for (i in living) {
-          agents[[i]]$bm[t] <- agents[[i]]$bm[t - 1]
-          agents[[i]]$ifbfat[t] <- agents[[i]]$ifbfat[t - 1]
-          agents[[i]]$lean_mass[t] <- agents[[i]]$lean_mass[t - 1]
-          agents[[i]]$fat_mass[t] <- agents[[i]]$fat_mass[t - 1]
+          agents[[i]][t, body_idx] <- agents[[i]][t - 1, body_idx]
         }
       }
 
-      #12) move phase — every living agent moves
+      #13) move phase — every living agent moves
 
       for (i in living) {
         mv <- simulate_move(
-          agents[[i]]$x[t - 1],
-          agents[[i]]$y[t - 1],
-          agents[[i]]$heading[t - 1],
+          agents[[i]][t - 1, x_idx],
+          agents[[i]][t - 1, y_idx],
+          agents[[i]][t - 1, heading_idx],
           agent_params$issf[[i]],
           move_t,
           time_t
         )
-        agents[[i]]$x[t] <- mv[["x"]]
-        agents[[i]]$y[t] <- mv[["y"]]
-        agents[[i]]$step_length[t] <- mv[["step_length"]]
-        agents[[i]]$turn_angle[t] <- mv[["turn_angle"]]
-        agents[[i]]$heading[t] <- mv[["heading"]]
+        if (is.null(mv)) {
+          # cornered agent: simulate_move returns NULL when more than half its candidate
+          #   steps leave the extent, so it stays put this hour — carry position and
+          #   heading forward with a zero-length step
+          agents[[i]][t, c(x_idx, y_idx, heading_idx)] <- agents[[i]][t - 1, c(x_idx, y_idx, heading_idx)]
+          agents[[i]][t, step_length_idx] <- 0
+          agents[[i]][t, turn_angle_idx] <- 0
+        } else {
+          agents[[i]][t, move_idx] <- mv[move_names]
+        }
       }
 
-      #13) forage phase — every living agent forages in shuffled order, depleting vals
+      #14) forage phase — every living agent forages in shuffled order, depleting vals
 
       for (i in living) {
         fg <- simulate_forage(
-          agents[[i]]$x[t],
-          agents[[i]]$y[t],
+          agents[[i]][t, x_idx],
+          agents[[i]][t, y_idx],
           vals,
           geom_ref,
           is_day
         )
-        agents[[i]]$forage_consumed[t] <- fg$forage_consumed
-        agents[[i]]$energy_i[t] <- fg$energy_i
+        agents[[i]][t, forage_idx] <- c(fg$forage_consumed, fg$energy_i)
         if (!is.na(fg$cell)) vals[fg$cell] <- vals[fg$cell] - fg$forage_consumed
       }
     }
 
-    #14) end of day: add the day's consumption to the deficit, then cap and decay it
+    #15) end of day: add the day's consumption to the deficit, then cap and decay it
     # day-start realized was potential_d - deficit; vals is what remains after
     #   grazing, so (potential_d - deficit) - vals is the day's consumption per
     #   cell. add it to the deficit, then cap at the next day's potential and decay.
@@ -250,7 +398,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
       deficit <- update_forage(deficit, potential_next)
     }
 
-    #15) end of day: update each living agent's energy balance, mass, and survival
+    #16) end of day: update each living agent's energy balance, mass, and survival
     # daily values are written to the day's last hourly row (t_day); new body mass
     #   and body fat are propagated to the first row of the next day so day d+1
     #   reads the updated state
@@ -263,14 +411,14 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
     day_living <- which(
       vapply(
         agents,
-        function(a) a$status[t_day] == "ALIVE",
+        function(a) a[t_day, status_idx] == .status_alive,
         logical(1)
       )
     )
 
     for (i in day_living) {
 
-      bm_i <- agents[[i]]$bm[t_day]
+      bm_i <- agents[[i]][t_day, bm_idx]
 
       #1) daily energy expenditure terms
       # the locomotion window spans the day's position rows and the steps between
@@ -281,9 +429,9 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
       energy_bmr <- calc_energy_bmr(bm_i)
       energy_hif <- calc_energy_hif(bm_i, t_day)
       energy_loc <- calc_energy_loc(
-        agents[[i]]$x[loc_start:t_day],
-        agents[[i]]$y[loc_start:t_day],
-        agents[[i]]$step_length[(loc_start + 1):t_day],
+        agents[[i]][loc_start:t_day, x_idx],
+        agents[[i]][loc_start:t_day, y_idx],
+        agents[[i]][(loc_start + 1):t_day, step_length_idx],
         bm_i,
         dem_vals
       )
@@ -296,7 +444,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
       #2) daily net energy balance from the day's hourly intake
 
       net <- calc_energy_net(
-        agents[[i]]$energy_i[day_rows],
+        agents[[i]][day_rows, energy_i_idx],
         energy_bmr,
         energy_hif,
         energy_loc,
@@ -306,26 +454,24 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
       #3) fat-mass change and propagated body mass and body fat
 
       fat_change <- calc_fat_change(net[["energy_net"]])
-      mass <- update_mass(bm_i, agents[[i]]$ifbfat[t_day], fat_change)
+      mass <- update_mass(bm_i, agents[[i]][t_day, ifbfat_idx], fat_change)
 
       #4) write the day's energetics to the day's last row
 
-      agents[[i]]$energy_bmr[t_day] <- energy_bmr
-      agents[[i]]$energy_hif[t_day] <- energy_hif
-      agents[[i]]$energy_loc[t_day] <- energy_loc
-      agents[[i]]$energy_rep[t_day] <- energy_rep
-      agents[[i]]$daily_intake[t_day] <- net[["daily_intake"]]
-      agents[[i]]$energy_net[t_day] <- net[["energy_net"]]
-      agents[[i]]$fat_change[t_day] <- fat_change
+      agents[[i]][t_day, energy_idx] <-
+        c(energy_bmr, energy_hif, energy_loc, energy_rep, net[["daily_intake"]], net[["energy_net"]], fat_change)
 
       #5) propagate the updated body state to the next day's first row
 
       if (d < length(dates)) {
         t_next <- t_day + 1
-        agents[[i]]$bm[t_next] <- mass[["bm"]]
-        agents[[i]]$ifbfat[t_next] <- mass[["ifbfat"]]
-        agents[[i]]$lean_mass[t_next] <- calc_lean_mass(mass[["bm"]], mass[["ifbfat"]])
-        agents[[i]]$fat_mass[t_next] <- calc_fat_mass(mass[["bm"]], mass[["ifbfat"]])
+        agents[[i]][t_next, body_idx] <-
+          c(
+            mass[["bm"]],
+            mass[["ifbfat"]],
+            calc_lean_mass(mass[["bm"]], mass[["ifbfat"]]),
+            calc_fat_mass(mass[["bm"]], mass[["ifbfat"]])
+          )
       }
 
       #6) survival and days-post-partum: mark dead if fat reserves are exhausted,
@@ -337,12 +483,28 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE) {
         calc_fat_mass(mass[["bm"]], mass[["ifbfat"]]),
         agent_params$j_post_partum[i]
       )
-      agents[[i]]$status[t_day] <- upd$status
+      agents[[i]][t_day, status_idx] <- if (upd$status == "ALIVE") .status_alive else .status_dead
       agent_params$j_post_partum[i] <- upd$j_post_partum
     }
   }
 
-  #1) return the agent population and final parameters
+  # ------------------------------------------------------------------------------------------------------------------------
+  # return
+  # ------------------------------------------------------------------------------------------------------------------------
+
+  #1) convert agents back to per-agent tibbles, then return with final parameters
+
+  agents <- agents_to_tibble(agents, times)
+
+  #2) optional run-time report: elapsed wall clock and the n_candidates setting
+
+  if (report_time) {
+    elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
+    message(
+      "Run time: ", round(elapsed, 2), " min  (n_candidates = ",
+      get_param("n_candidates"), ")"
+    )
+  }
 
   list(agents = agents, agent_params = agent_params)
 }

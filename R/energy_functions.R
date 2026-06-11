@@ -89,22 +89,30 @@ calc_energy_hif <- function(bm, t) {
 #' @keywords internal
 calc_energy_loc <- function(x_window, y_window, sl_window, bm, dem_vals) {
 
-  # step start/end coordinates: start = rows 1:24, end = rows 2:25 of the window
+  # ----------------------------------------------------------------------------------------------------------------------
+  # locomotion energy summed over the day's steps
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) step start and end coordinates: start = rows 1:24, end = rows 2:25 of the window
+
   n <- length(sl_window)
   start <- cbind(x_window[1:n], y_window[1:n])
   end <- cbind(x_window[2:(n + 1)], y_window[2:(n + 1)])
 
-  # all rasters share the model CRS, so no projection is needed; index the in-memory
-  #   dem values by cell (cheaper than terra::extract) for the start and end elevations
+  #2) start and end elevations: all rasters share the model CRS, so index the in-memory dem
+  #   values by cell (cheaper than terra::extract) rather than reprojecting
+
   elev_start <- dem_vals[terra::cellFromXY(dem, start)]
   elev_end <- dem_vals[terra::cellFromXY(dem, end)]
 
-  # signed slope of each step (degrees): descent negative, incline positive
+  #3) signed slope of each step in degrees: descent negative, incline positive
+
   slope <- atan2(elev_end - elev_start, sl_window) * 180 / pi
 
-  # select the distance cost factor by slope bin; read the five constants once and
-  #   fill by bin via which() (NA-safe: a step with NA slope keeps an NA factor, as
-  #   the prior nested ifelse produced, so the day's energy_loc propagates NA)
+  #4) distance cost factor per step, selected by slope bin: read the five constants once and
+  #   fill by bin via which() (NA-safe: a step with NA slope keeps an NA factor, as the prior
+  #   nested ifelse produced, so the day's energy_loc propagates NA)
+
   f_d10  <- get_param("distance_cost_factor_d_10")
   f_d110 <- get_param("distance_cost_factor_d_1_10")
   f_f    <- get_param("distance_cost_factor_f")
@@ -117,6 +125,9 @@ calc_energy_loc <- function(x_window, y_window, sl_window, bm, dem_vals) {
   factor[which(slope >= -1  & slope <= 1)]  <- f_f
   factor[which(slope >  1   & slope <= 10)] <- f_i110
   factor[which(slope > 10)]                 <- f_i10
+
+  #5) daily cost: factor times body mass times horizontal step length, summed and converted
+  #   from joules to kilojoules
 
   sum(factor * bm * sl_window) / 1000
 }
@@ -191,11 +202,22 @@ calc_energy_i <- function(dmi) {
 #' @keywords internal
 calc_energy_net <- function(energy_i_window, energy_bmr, energy_hif, energy_loc, energy_rep) {
 
+  # ----------------------------------------------------------------------------------------------------------------------
+  # net daily energy balance
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) total metabolizable energy taken in over the day
+
   daily_intake <- sum(energy_i_window, na.rm = TRUE)
+
+  #2) net balance: intake minus basal metabolism, heat increment, locomotion, and lactation
 
   net <- daily_intake - energy_bmr - energy_hif - energy_loc - energy_rep
 
-  c(daily_intake = daily_intake, energy_net = net)
+  #3) return both, unnamed so the two elements carry exactly daily_intake and energy_net; a
+  #   named input would otherwise compound the names
+
+  c(daily_intake = unname(daily_intake), energy_net = unname(net))
 }
 
 #' Calculate daily fat-mass change
@@ -211,11 +233,21 @@ calc_energy_net <- function(energy_i_window, energy_bmr, energy_hif, energy_loc,
 #'
 #' @keywords internal
 calc_fat_change <- function(net) {
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # convert net energy balance to a change in fat mass
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) a surplus is deposited at the fat deposition efficiency; a deficit is covered by
+  #   mobilizing fat at the catabolism efficiency
+
   if (net >= 0) {
     fat_change_g <- net * get_param("fat_dep") / get_param("E_fat")
   } else {
     fat_change_g <- net / (get_param("fat_eff") * get_param("E_fat"))
   }
+
+  #2) convert grams to kilograms
 
   fat_change_g / 1000
 }

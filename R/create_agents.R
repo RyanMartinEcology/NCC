@@ -14,8 +14,16 @@
 #' @keywords internal
 draw_movement_params <- function() {
 
+  # ----------------------------------------------------------------------------------------------------------------------
+  # draw one movement model from the population MVN
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) population mean vector and covariance
+
   mu <- get_param("mvn_mu")
   sigma <- get_param("mvn_sigma")
+
+  #2) draw one 15-dimensional movement vector
 
   draw <- MASS::mvrnorm(
     1,
@@ -23,11 +31,17 @@ draw_movement_params <- function() {
     Sigma = sigma
   )
 
+  #3) exponentiate the three log-scale pooled tentative distribution parameters
+
   shape <- exp(draw[["log_shape"]])
   scale <- exp(draw[["log_scale"]])
   kappa <- exp(draw[["log_kappa"]])
 
+  #4) the remaining twelve dimensions are the selection coefficients
+
   coefs <- draw[setdiff(names(draw), c("log_shape", "log_scale", "log_kappa"))]
+
+  #5) build the single iSSF model, carrying day and night via tod_end_ interactions
 
   amt::make_issf_model(
     coefs = coefs,
@@ -62,6 +76,12 @@ draw_movement_params <- function() {
 #' @keywords internal
 create_agents <- function(forage_raster, dem) {
 
+  # ----------------------------------------------------------------------------------------------------------------------
+  # set up dimensions, time axis, and identifiers
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) agent count, the hourly time sequence, starting body mass, and agent ids
+
   n <- get_param("n_agents")
   t_start <- get_param("t_start")
   t_end <- get_param("t_end")
@@ -74,14 +94,21 @@ create_agents <- function(forage_raster, dem) {
   bm <- get_param("bm")
   ids <- paste0("BHS_", sprintf("%03d", seq_len(n)))
 
+  # ----------------------------------------------------------------------------------------------------------------------
   # draw fixed individual parameters
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) per-agent body condition and reproductive status
+
   ifbfat <- sapply(seq_len(n), function(i) draw_param("ifbf"))
   rep_status <- sapply(seq_len(n), function(i) draw_param("rep_status"))
 
-  # draw individual movement models from the population-level MVN
+  #2) per-agent movement model drawn from the population-level MVN
+
   issf <- lapply(seq_len(n), function(i) draw_movement_params())
 
-  # build agent_params tibble — one row per agent, all fixed parameters
+  #3) the fixed-parameter tibble, one row per agent
+
   agent_params <- dplyr::tibble(
     id = ids,
     rep_status = rep_status,
@@ -91,11 +118,18 @@ create_agents <- function(forage_raster, dem) {
     issf = issf
   )
 
-  # place agents on any valid cell whose elevation falls in the 10000-11500 ft band
-  # dem is in meters, so convert the band: 10000 ft = 3048 m, 11500 ft = 3505.2 m
-  # (1 ft = 0.3048 m); cells outside the study polygon are NA in forage and excluded
+  # ----------------------------------------------------------------------------------------------------------------------
+  # place agents in the starting elevation band
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) target band of 10000-11500 ft converted to meters (1 ft = 0.3048 m); agents are
+  #   restricted to this elevation band at initialization
+
   elev_min <- 10000 * 0.3048
   elev_max <- 11500 * 0.3048
+
+  #2) candidate starting cells: valid (non-NA) forage cells whose dem elevation is in band;
+  #   cells outside the study polygon are NA in forage and so are excluded
 
   ref <- forage_raster[[1]]
   ref_cells <- which(!is.na(terra::values(ref, mat = FALSE)))
@@ -105,6 +139,8 @@ create_agents <- function(forage_raster, dem) {
   in_band <- !is.na(elev) & elev >= elev_min & elev <= elev_max
   start_xy <- ref_xy[in_band, , drop = FALSE]
 
+  #3) sample one starting cell per agent, with replacement only if too few cells are in band
+
   start_idx <- sample(
     nrow(start_xy),
     n,
@@ -113,14 +149,23 @@ create_agents <- function(forage_raster, dem) {
   x_init <- start_xy[start_idx, 1]
   y_init <- start_xy[start_idx, 2]
 
-  # build agent tibbles — time-varying state only
+  # ----------------------------------------------------------------------------------------------------------------------
+  # build per-agent state tibbles
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) the named list that will hold one state tibble per agent
+
   agents <- vector("list", n)
   names(agents) <- ids
 
   for (i in seq_len(n)) {
 
+    #2) the agent's first-row body condition
+
     bm_i <- bm
     ifbfat_i <- ifbfat[i]
+
+    #3) an all-NA hourly state frame, one row per time step and one column per state variable
 
     empty_rows <- dplyr::tibble(
       datetime = times,
@@ -145,6 +190,9 @@ create_agents <- function(forage_raster, dem) {
       energy_net = NA_real_,
       fat_change = NA_real_
     )
+
+    #4) initialize the first row: status, start position, heading, body state, and the
+    #   first-step energetics (locomotion and intake begin at zero)
 
     empty_rows$status[1] <- "ALIVE"
     empty_rows$x[1] <- x_init[i]
@@ -174,6 +222,12 @@ create_agents <- function(forage_raster, dem) {
 
     agents[[i]] <- empty_rows
   }
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # return
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) return the agents and their fixed individual parameters
 
   list(agents = agents, agent_params = agent_params)
 }

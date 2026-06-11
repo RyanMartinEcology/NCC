@@ -9,6 +9,14 @@ draw_param(param)
 \arguments{
 \item{param}{Character string. Name of the parameter.}
 }
+\value{
+For a parameter stored as a function, one draw from it; otherwise the stored
+value unchanged.
+}
 \description{
-Draw a parameter value
+Returns a parameter value, first evaluating it if it is stored as a
+function. Several individual-level parameters (\code{ifbf}, \code{rep_status}) are
+stored as random-draw functions so that each agent receives its own value; this
+evaluates the function once per call. Parameters that are not functions are returned
+unchanged, so the same call works for fixed and stochastic parameters alike.
 }

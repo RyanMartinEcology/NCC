@@ -1,13 +1,39 @@
+#' Package parameter environment
+#'
+#' @description Internal environment that holds every global model parameter. Storing
+#'   parameters in a dedicated environment (rather than as package objects) lets them be
+#'   read, overridden, and redrawn at run time through \code{get_param()},
+#'   \code{set_param()}, and \code{draw_param()} without reassigning into the package
+#'   namespace. Populated by \code{.set_defaults()} at load.
+#'
 #' @keywords internal
+
 .ncc_env <- new.env(parent = emptyenv())
 
-#' Set default model parameters
+#' Populate the parameter environment with model defaults
+#'
+#' @description Writes every default model parameter into \code{.ncc_env}: simulation and
+#'   time settings, the study-area location, the precomputed daylight schedule, the
+#'   energetic and body-condition constants, the pregnancy and lactation schedule, plant
+#'   and calibration parameters, and the population-level movement distribution. Run once
+#'   at load by \code{.onLoad()}; call again by hand to refresh the derived daylight
+#'   vectors after changing any time or location parameter. Most scalars carry
+#'   \code{unit}, \code{source}, and \code{full_name} attributes that document the value.
+#'
+#' @return Called for its side effect of populating \code{.ncc_env}; the return value is
+#'   not used.
+#'
 #' @keywords internal
+
 .set_defaults <- function() {
 
   # -----------------------------------------------------------------------------------------------------
   # simulation parameters
   # -----------------------------------------------------------------------------------------------------
+
+  #1) agent-scaling loop constants: the model is run in replicate (replicates) at agent counts
+  #   rising by delta_n up to n_max, and the level at which mean body condition reaches the
+  #   carrying_capacity threshold is taken as nutritional carrying capacity
 
   .ncc_env$replicates <- 100L
   attr(.ncc_env$replicates, 'unit') <- 'iterations'
@@ -29,21 +55,30 @@
   attr(.ncc_env$n_max, 'source') <- NA
   attr(.ncc_env$n_max, 'full_name') <- 'Maximum number of agents'
 
+  #2) the mutable agent count for the run currently in progress
+
   .ncc_env$n_agents <- 50 # denotes current number of agents, can be updated within the model
 
   # -----------------------------------------------------------------------------------------------------
   # time parameters
   # -----------------------------------------------------------------------------------------------------
 
+  #1) hourly time step (t_delta) across a fixed summer-to-autumn window in the study time zone;
+  #   t_start and t_end bound every hourly and daily sequence built elsewhere in the model
+
   .ncc_env$t_delta <- lubridate::hours(1)
-  .ncc_env$t_start <- as.POSIXct("2025-07-01", tz = "America/Denver") # start of simulation
-  .ncc_env$t_end <- as.POSIXct("2025-10-31", tz = "America/Denver") # end of simulation
+  .ncc_env$t_start <- as.POSIXct('2025-07-01', tz = 'America/Denver') # start of simulation
+  .ncc_env$t_end <- as.POSIXct('2025-10-31', tz = 'America/Denver') # end of simulation
 
   # -----------------------------------------------------------------------------------------------------
   # spatial parameters
   # -----------------------------------------------------------------------------------------------------
 
-  .ncc_env$epsg <- "EPSG:32612"
+  #1) the projected coordinate system shared by all model rasters
+
+  .ncc_env$epsg <- 'EPSG:32612'
+
+  #2) study-area coordinates, used only to derive the daylight schedule below
 
   .ncc_env$study_lat <- 43.74075
   attr(.ncc_env$study_lat, 'unit') <- 'decimal degrees'
@@ -63,11 +98,16 @@
   #   rerun .set_defaults() to refresh this vector
   # -----------------------------------------------------------------------------------------------------
 
+  #1) hourly time sequence matching the model clock (t_start to t_end by t_delta)
+
   daylight_times <- seq(
     .ncc_env$t_start,
     .ncc_env$t_end,
-    by = as.numeric(.ncc_env$t_delta, units = "secs")
+    by = as.numeric(.ncc_env$t_delta, units = 'secs')
   )
+
+  #2) solar geometry from latitude and day of year: declination and the resulting half-day
+  #   length (hours from solar noon to sunset), plus the local clock hour of each step
 
   daylight_lat_rad <- .ncc_env$study_lat * pi / 180
   daylight_doy <- lubridate::yday(daylight_times)
@@ -75,17 +115,23 @@
   daylight_half_day <- (12 / pi) * acos(-tan(daylight_lat_rad) * tan(daylight_decl))
   daylight_hour <- lubridate::hour(daylight_times) + lubridate::minute(daylight_times) / 60
 
+  #3) daylight flag per step: TRUE when the clock hour falls within the half-day of solar noon
+
   .ncc_env$is_daylight <- daylight_hour >= (12 - daylight_half_day) &
     daylight_hour <= (12 + daylight_half_day)
 
-  # day length (hours) per time step, aligned with is_daylight; index by loop position t.
-  # depends only on day-of-year, so it is constant within a day. this is exactly the
-  #   day_length calc_energy_hif() used to recompute per call: (24/pi)*acos(...) = 2 * half-day
+  #4) day length (hours) per step, equal to twice the half-day; depends only on day of year so
+  #   it is constant within a day. this is exactly the quantity calc_energy_hif() formerly
+  #   recomputed per call: (24/pi)*acos(...) = 2 * half-day
+
   .ncc_env$day_length <- 2 * daylight_half_day
 
   # -----------------------------------------------------------------------------------------------------
   # energy parameters
   # -----------------------------------------------------------------------------------------------------
+
+  #1) forage energy: digestible energy of suitable forage (DE), the digestible-to-metabolizable
+  #   conversion, and the resulting metabolizable energy (ME)
 
   .ncc_env$DE <- 12.98544 # this is the weighted mean of digestible energy of suitable forage biomass in vegetation transects.
   attr(.ncc_env$DE, 'unit') <- 'kJ/g'
@@ -101,6 +147,9 @@
   attr(.ncc_env$ME, 'unit') <- 'kJ/g'
   attr(.ncc_env$ME, 'source') <- NA
   attr(.ncc_env$ME, 'full_name') <- 'Metabolizable Energy'
+
+  #2) slope-binned locomotion cost factors, from steep descent (d_10) through flat (f) to steep
+  #   incline (i_10); calc_energy_loc() selects one per step by the signed slope of the step
 
   .ncc_env$distance_cost_factor_d_10 <- 5.34
   attr(.ncc_env$distance_cost_factor_d_10, 'unit') <- 'J * kg^-1 * m^-1'
@@ -127,6 +176,9 @@
   attr(.ncc_env$distance_cost_factor_i_10, 'source') <- 'Dailey and Hobbs 1989'
   attr(.ncc_env$distance_cost_factor_i_10, 'full_name') <- NA
 
+  #3) heat increment of feeding (HIF) and the proportion of the diurnal period spent foraging,
+  #   which together scale the daily feeding-related heat cost
+
   .ncc_env$HIF <- 0.0018
   attr(.ncc_env$HIF, 'unit') <- 'kJ * kg^-1 * h^-1'
   attr(.ncc_env$HIF, 'source') <- 'Dailey and Hobbs 1989'
@@ -136,6 +188,9 @@
   attr(.ncc_env$prop_day_forage, 'unit') <- 'proportion'
   attr(.ncc_env$prop_day_forage, 'source') <- 'Courtemanch et al. 2014'
   attr(.ncc_env$prop_day_forage, 'full_name') <- 'Proportion of the diurnal period spent feeding'
+
+  #4) fat-reserve energetics: the energy density of fat (E_fat) and the catabolism and
+  #   deposition efficiencies that convert a net daily energy balance into a change in fat mass
 
   .ncc_env$E_fat <- 39.5
   attr(.ncc_env$E_fat, 'unit') <- 'kJ/g'
@@ -156,10 +211,15 @@
   # body condition and body mass parameters
   # -----------------------------------------------------------------------------------------------------
 
+  #1) energy threshold below which an agent is treated as dead
+
   .ncc_env$death <- 0
   attr(.ncc_env$death, 'unit') <- 'kJ'
   attr(.ncc_env$death, 'source') <- NA
   attr(.ncc_env$death, 'full_name') <- 'Energy Threshold for Death'
+
+  #2) starting body mass (bm) and the among-individual ingesta-free body fat draw (ifbf),
+  #   sampled once per agent at initialization
 
   .ncc_env$bm <- 56.91 # calculated from Teton capture data
 
@@ -168,6 +228,10 @@
   # -----------------------------------------------------------------------------------------------------
   # pregnancy and lactation parameters
   # -----------------------------------------------------------------------------------------------------
+
+  #1) reproductive state and its lactation energy cost: rep_status is drawn per agent,
+  #   j_post_partum sets the starting day post partum, lactation_modifier gives the daily cost
+  #   multiplier indexed by days post partum, and calc_lactation_modifier performs the lookup
 
   .ncc_env$rep_status <- function() rbinom(1, 1, 0.678571429) #this is the proportion of captured ewes that showed some evidence of lactation
   .ncc_env$j_post_partum <- 25
@@ -202,13 +266,17 @@
                                    0.408922529, 0.405782316, 0.402666217, 0.399574047, 0.396505623,
                                    0.393460761, 0.390439282, 0.387441006, 0.384465754, 0.38151335,
                                    0.378583618, 0)
+
   .ncc_env$calc_lactation_modifier <- function(j_post_partum) {
-    get_param("lactation_modifier")[as.integer(j_post_partum)]
+    get_param('lactation_modifier')[as.integer(j_post_partum)]
   }
 
   # -----------------------------------------------------------------------------------------------------
   # plant trait parameters
   # -----------------------------------------------------------------------------------------------------
+
+  #1) daily fractional regrowth of grazed forage, set from a 21-day half-life so a depleted
+  #   cell recovers toward its reference biomass over the season
 
   .ncc_env$plant_regrowth_rate <- 1 - 0.5^(1/21) #21 day half-life on 42 day recovery period Osterheild 1992
 
@@ -216,12 +284,15 @@
   # model calibration parameters
   # -----------------------------------------------------------------------------------------------------
 
+  #1) the dry-matter-intake functional response: max_dmi is the intake asymptote and
+  #   half_saturation the forage density at half-maximal intake, both tuned during calibration
+
   .ncc_env$max_dmi <- 372
   attr(.ncc_env$max_dmi, 'unit') <- 'g/hour'
   attr(.ncc_env$max_dmi, 'source') <- NA
   attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
 
-  .ncc_env$half_saturation <- 15000
+  .ncc_env$half_saturation <- 22000
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
   attr(.ncc_env$half_saturation, 'source') <- 'Spalinger and Hobbs 1992'
   attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response'
@@ -261,53 +332,60 @@
   #   the remaining twelve coefficients are passed to make_issf_model() coefs as one vector
   # -----------------------------------------------------------------------------------------------------
 
+  #1) number of candidate steps drawn per redistribution kernel at each move
+
   .ncc_env$n_candidates <- 25L
   attr(.ncc_env$n_candidates, 'unit') <- 'candidate steps'
   attr(.ncc_env$n_candidates, 'source') <- NA
   attr(.ncc_env$n_candidates, 'full_name') <- 'Number of candidate steps drawn per redistribution kernel'
 
-  mvn_names <- c("log_shape", "log_scale", "log_kappa",
-                 "sl_", "log(sl_)", "cos(ta_)",
-                 "forage_biomass_end", "escape_terrain_end", "canopy_cover_end",
-                 "sl_:tod_end_night_end", "log(sl_):tod_end_night_end", "cos(ta_):tod_end_night_end",
-                 "forage_biomass_end:tod_end_night_end", "escape_terrain_end:tod_end_night_end",
-                 "canopy_cover_end:tod_end_night_end")
+  #2) the 15 MVN dimension names, in model-term order (must match the term names the kernel
+  #   evaluates; see the naming convention above)
 
-  # mean vector (placeholder); the three log dims are on the log scale
-  # main effects reproduce the prior daytime values; offsets reproduce the prior night values
+  mvn_names <- c('log_shape', 'log_scale', 'log_kappa',
+                 'sl_', 'log(sl_)', 'cos(ta_)',
+                 'forage_biomass_end', 'escape_terrain_end', 'canopy_cover_end',
+                 'sl_:tod_end_night_end', 'log(sl_):tod_end_night_end', 'cos(ta_):tod_end_night_end',
+                 'forage_biomass_end:tod_end_night_end', 'escape_terrain_end:tod_end_night_end',
+                 'canopy_cover_end:tod_end_night_end')
+
+  #3) mean vector (placeholder); the three log dims are on the log scale
+  #   main effects reproduce the prior daytime values; offsets reproduce the prior night values
   #   (night = main + offset), e.g. cos_ta_ day 0.50, night 0.20, so offset -0.30
-  # the sl_ night offset (-0.0455) halves the mean step length at night: it raises the gamma
+  #   the sl_ night offset (-0.0455) halves the mean step length at night: it raises the gamma
   #   rate from 1/22 to 1/11, holding shape, so mean falls from 2*22 = 44 m to 2*11 = 22 m
-  # escape_terrain_end is calibrated to the covariate range (0 to ~0.353): day 8.0 gives
+  #   escape_terrain_end is calibrated to the covariate range (0 to ~0.353): day 8.0 gives
   #   exp(8.0*0.353) ~ 16.8x preference for max- vs min-escape cells, night 11.0 (offset +3.0)
   #   gives exp(11.0*0.353) ~ 48.6x, so selection is strong day and night, stronger at night
-  # forage_biomass_end is calibrated to the covariate range (~500 to 360000, clamped): day
+  #   forage_biomass_end is calibrated to the covariate range (~500 to 360000, clamped): day
   #   2e-6 gives exp(2e-6*359500) ~ 2x preference for richest vs poorest cells (weak), night
   #   -1.0e-5 (offset -1.2e-5) gives exp(-1.0e-5*359500) ~ 1/36, so day is weak selection
   #   and night is strong avoidance of high-forage cells
+
   .ncc_env$mvn_mu <- c(
-    "log_shape"                            =  log(2.0),
-    "log_scale"                            =  log(22),
-    "log_kappa"                            =  log(0.35),
-    "sl_"                                  =  0.00,
-    "log(sl_)"                             =  0.00,
-    "cos(ta_)"                             =  0.50,
-    "forage_biomass_end"                   =  2e-6,
-    "escape_terrain_end"                   =  8.00,
-    "canopy_cover_end"                     = -0.05,
-    "sl_:tod_end_night_end"                = -0.0455,
-    "log(sl_):tod_end_night_end"           =  0.00,
-    "cos(ta_):tod_end_night_end"           = -0.30,
-    "forage_biomass_end:tod_end_night_end" = -1.2e-5,
-    "escape_terrain_end:tod_end_night_end" =  3.00,
-    "canopy_cover_end:tod_end_night_end"   =  0.00
+    'log_shape'                            =  log(2.0),
+    'log_scale'                            =  log(22),
+    'log_kappa'                            =  log(0.35),
+    'sl_'                                  =  0.00,
+    'log(sl_)'                             =  0.00,
+    'cos(ta_)'                             =  0.50,
+    'forage_biomass_end'                   =  2e-6,
+    'escape_terrain_end'                   =  8.00,
+    'canopy_cover_end'                     = -0.05,
+    'sl_:tod_end_night_end'                = -0.0455,
+    'log(sl_):tod_end_night_end'           =  0.00,
+    'cos(ta_):tod_end_night_end'           = -0.30,
+    'forage_biomass_end:tod_end_night_end' = -1.2e-5,
+    'escape_terrain_end:tod_end_night_end' =  3.00,
+    'canopy_cover_end:tod_end_night_end'   =  0.00
   )
 
-  # covariance matrix (placeholder) — diagonal, off-diagonals zero pending empirical structure
-  # log dims keep variance 0.09 (= prior sdlog 0.3, squared); the geometry-correction dims
+  #4) covariance matrix (placeholder); diagonal, off-diagonals zero pending empirical structure.
+  #   log dims keep variance 0.09 (= prior sdlog 0.3, squared); the geometry-correction dims
   #   (sl_, log(sl_), cos(ta_), day and night) keep variance 0.10; the habitat-selection dims
   #   use an among-individual CV of 0.20, var = (0.20 * mean)^2, so their spread scales with
   #   the rescaled means (the canopy night offset has mean 0, so it is floored at 1e-4)
+
   mvn_var <- c(
     0.09, 0.09, 0.09,
     0.10, 0.10, 0.10,
@@ -321,29 +399,72 @@
 
 }
 
+#' Package load hook
+#'
+#' @description Run automatically by R when the package is loaded. Populates the
+#'   parameter environment with model defaults by calling \code{.set_defaults()}.
+#'
+#' @param libname Library path; supplied by R.
+#' @param pkgname Package name; supplied by R.
+#'
+#' @keywords internal
+
 .onLoad <- function(libname, pkgname) {
   .set_defaults()
 }
 
 #' Get a global model parameter
+#'
+#' @description Returns a parameter from the package parameter environment exactly as
+#'   stored, including any \code{unit}, \code{source}, and \code{full_name} attributes.
+#'   Parameters stored as draw functions (for example \code{ifbf} and \code{rep_status})
+#'   are returned as the function itself; use \code{draw_param()} to obtain a drawn value.
+#'
 #' @param param Character string. Name of the parameter.
+#'
+#' @return The stored parameter value, of whatever type it was set to, or \code{NULL} if
+#'   the parameter is not set.
+#'
 #' @importFrom lubridate hours yday
 #' @export
+
 get_param <- function(param) {
   .ncc_env[[param]]
 }
 
 #' Set or override a global model parameter
+#'
+#' @description Writes a value into the package parameter environment, creating the
+#'   parameter if it does not exist and replacing it if it does. Used to override a
+#'   default at run time, for example raising \code{n_agents} or \code{n_candidates} for
+#'   a particular run.
+#'
 #' @param param Character string. Name of the parameter.
-#' @param value New value.
+#' @param value New value to store; any type.
+#'
+#' @return The assigned \code{value}, invisibly.
+#'
 #' @export
+
 set_param <- function(param, value) {
   .ncc_env[[param]] <- value
 }
 
 #' Draw a parameter value
+#'
+#' @description Returns a parameter value, first evaluating it if it is stored as a
+#'   function. Several individual-level parameters (\code{ifbf}, \code{rep_status}) are
+#'   stored as random-draw functions so that each agent receives its own value; this
+#'   evaluates the function once per call. Parameters that are not functions are returned
+#'   unchanged, so the same call works for fixed and stochastic parameters alike.
+#'
 #' @param param Character string. Name of the parameter.
+#'
+#' @return For a parameter stored as a function, one draw from it; otherwise the stored
+#'   value unchanged.
+#'
 #' @export
+
 draw_param <- function(param) {
   val <- .ncc_env[[param]]
   if (is.function(val)) val() else val

@@ -11,6 +11,11 @@
 
 \item{...}{Ignored.}
 }
+\value{
+The input \code{x}, invisibly.
+}
 \description{
-Print an NCC agent-based model summary
+Formats a \code{summary_abm} object as a readable console summary:
+agent count and survival, ending body condition broken out by reproductive
+status, and monthly tables of net energy, dry matter intake, and distance moved.
 }

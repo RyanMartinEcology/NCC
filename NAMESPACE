@@ -2,7 +2,6 @@
 
 S3method(print,summary_abm)
 export(draw_param)
-export(forage_heatmap)
 export(get_param)
 export(ncc_abm)
 export(plot_abm)
