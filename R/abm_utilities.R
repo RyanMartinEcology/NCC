@@ -214,13 +214,16 @@ simulate_move <- function(x0, y0, heading0, issf, move, time) {
 #' @param geom A single-layer \code{terra::SpatRaster} supplying the grid geometry
 #'   for \code{cellFromXY} (the day-start forage layer). Not modified.
 #' @param is_day Logical. Whether the current hour is daylight.
+#' @param consumed_today Numeric. Dry matter (g) the agent has already consumed
+#'   earlier in the current day; used to hold the day's intake under
+#'   \code{max_daily_intake}, and ignored at night.
 #'
 #' @return A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),
 #'   and \code{cell} (the depleted cell index, or NA at night).
 #'
 #' @importFrom terra cellFromXY
 #' @keywords internal
-simulate_forage <- function(x, y, vals, geom, is_day) {
+simulate_forage <- function(x, y, vals, geom, is_day, consumed_today) {
 
   # ----------------------------------------------------------------------------------------------------------------------
   # night gate
@@ -248,6 +251,13 @@ simulate_forage <- function(x, y, vals, geom, is_day) {
   #1) consumed dry matter intake, floored at available biomass inside calc_dmi
 
   consumed <- calc_dmi(density)
+
+  #2) cap the day's cumulative intake at max_daily_intake; NA leaves intake uncapped
+
+  cap <- get_param("max_daily_intake")
+  if (!is.na(cap)) {
+    consumed <- min(consumed, max(0, cap - consumed_today))
+  }
 
   # ----------------------------------------------------------------------------------------------------------------------
   # return intake, energy, and the cell for the caller to deplete

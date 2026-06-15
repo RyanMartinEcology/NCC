@@ -5,7 +5,7 @@
 \alias{.ncc_env}
 \title{Package parameter environment}
 \format{
-An object of class \code{environment} of length 39.
+An object of class \code{environment} of length 40.
 }
 \usage{
 .ncc_env

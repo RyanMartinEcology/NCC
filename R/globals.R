@@ -7,7 +7,6 @@
 #'   namespace. Populated by \code{.set_defaults()} at load.
 #'
 #' @keywords internal
-
 .ncc_env <- new.env(parent = emptyenv())
 
 #' Populate the parameter environment with model defaults
@@ -24,7 +23,6 @@
 #'   not used.
 #'
 #' @keywords internal
-
 .set_defaults <- function() {
 
   # -----------------------------------------------------------------------------------------------------
@@ -67,8 +65,8 @@
   #   t_start and t_end bound every hourly and daily sequence built elsewhere in the model
 
   .ncc_env$t_delta <- lubridate::hours(1)
-  .ncc_env$t_start <- as.POSIXct('2025-07-01', tz = 'America/Denver') # start of simulation
-  .ncc_env$t_end <- as.POSIXct('2025-10-31', tz = 'America/Denver') # end of simulation
+  .ncc_env$t_start <- as.POSIXct("2025-07-01", tz = "America/Denver") # start of simulation
+  .ncc_env$t_end <- as.POSIXct("2025-10-31", tz = "America/Denver") # end of simulation
 
   # -----------------------------------------------------------------------------------------------------
   # spatial parameters
@@ -76,7 +74,7 @@
 
   #1) the projected coordinate system shared by all model rasters
 
-  .ncc_env$epsg <- 'EPSG:32612'
+  .ncc_env$epsg <- "EPSG:32612"
 
   #2) study-area coordinates, used only to derive the daylight schedule below
 
@@ -103,7 +101,7 @@
   daylight_times <- seq(
     .ncc_env$t_start,
     .ncc_env$t_end,
-    by = as.numeric(.ncc_env$t_delta, units = 'secs')
+    by = as.numeric(.ncc_env$t_delta, units = "secs")
   )
 
   #2) solar geometry from latitude and day of year: declination and the resulting half-day
@@ -266,9 +264,8 @@
                                    0.408922529, 0.405782316, 0.402666217, 0.399574047, 0.396505623,
                                    0.393460761, 0.390439282, 0.387441006, 0.384465754, 0.38151335,
                                    0.378583618, 0)
-
   .ncc_env$calc_lactation_modifier <- function(j_post_partum) {
-    get_param('lactation_modifier')[as.integer(j_post_partum)]
+    get_param("lactation_modifier")[as.integer(j_post_partum)]
   }
 
   # -----------------------------------------------------------------------------------------------------
@@ -292,10 +289,19 @@
   attr(.ncc_env$max_dmi, 'source') <- NA
   attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
 
-  .ncc_env$half_saturation <- 22000
+  .ncc_env$half_saturation <- 12000
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
   attr(.ncc_env$half_saturation, 'source') <- 'Spalinger and Hobbs 1992'
   attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response'
+
+  #2) daily dry matter intake cap applied within simulate_forage: once an agent's cumulative
+  #   intake for the day reaches this value, further foraging that day yields zero. set to NA
+  #   to remove the cap entirely
+
+  .ncc_env$max_daily_intake <- 2500 #3870
+  attr(.ncc_env$max_daily_intake, 'unit') <- 'g/day'
+  attr(.ncc_env$max_daily_intake, 'source') <- 'Mazaika et al. 1992; Gedir et al. 2016'
+  attr(.ncc_env$max_daily_intake, 'full_name') <- 'Daily dry matter intake cap (NA disables the cap)'
 
   # -----------------------------------------------------------------------------------------------------
   # movement parameters — population-level multivariate normal distribution
@@ -342,12 +348,12 @@
   #2) the 15 MVN dimension names, in model-term order (must match the term names the kernel
   #   evaluates; see the naming convention above)
 
-  mvn_names <- c('log_shape', 'log_scale', 'log_kappa',
-                 'sl_', 'log(sl_)', 'cos(ta_)',
-                 'forage_biomass_end', 'escape_terrain_end', 'canopy_cover_end',
-                 'sl_:tod_end_night_end', 'log(sl_):tod_end_night_end', 'cos(ta_):tod_end_night_end',
-                 'forage_biomass_end:tod_end_night_end', 'escape_terrain_end:tod_end_night_end',
-                 'canopy_cover_end:tod_end_night_end')
+  mvn_names <- c("log_shape", "log_scale", "log_kappa",
+                 "sl_", "log(sl_)", "cos(ta_)",
+                 "forage_biomass_end", "escape_terrain_end", "canopy_cover_end",
+                 "sl_:tod_end_night_end", "log(sl_):tod_end_night_end", "cos(ta_):tod_end_night_end",
+                 "forage_biomass_end:tod_end_night_end", "escape_terrain_end:tod_end_night_end",
+                 "canopy_cover_end:tod_end_night_end")
 
   #3) mean vector (placeholder); the three log dims are on the log scale
   #   main effects reproduce the prior daytime values; offsets reproduce the prior night values
@@ -363,21 +369,21 @@
   #   and night is strong avoidance of high-forage cells
 
   .ncc_env$mvn_mu <- c(
-    'log_shape'                            =  log(2.0),
-    'log_scale'                            =  log(22),
-    'log_kappa'                            =  log(0.35),
-    'sl_'                                  =  0.00,
-    'log(sl_)'                             =  0.00,
-    'cos(ta_)'                             =  0.50,
-    'forage_biomass_end'                   =  2e-6,
-    'escape_terrain_end'                   =  8.00,
-    'canopy_cover_end'                     = -0.05,
-    'sl_:tod_end_night_end'                = -0.0455,
-    'log(sl_):tod_end_night_end'           =  0.00,
-    'cos(ta_):tod_end_night_end'           = -0.30,
-    'forage_biomass_end:tod_end_night_end' = -1.2e-5,
-    'escape_terrain_end:tod_end_night_end' =  3.00,
-    'canopy_cover_end:tod_end_night_end'   =  0.00
+    "log_shape"                            =  log(2.0),
+    "log_scale"                            =  log(22),
+    "log_kappa"                            =  log(0.35),
+    "sl_"                                  =  0.00,
+    "log(sl_)"                             =  0.00,
+    "cos(ta_)"                             =  0.50,
+    "forage_biomass_end"                   =  2e-6,
+    "escape_terrain_end"                   =  8.00,
+    "canopy_cover_end"                     = -0.05,
+    "sl_:tod_end_night_end"                = -0.0455,
+    "log(sl_):tod_end_night_end"           =  0.00,
+    "cos(ta_):tod_end_night_end"           = -0.30,
+    "forage_biomass_end:tod_end_night_end" = -1.2e-5,
+    "escape_terrain_end:tod_end_night_end" =  3.00,
+    "canopy_cover_end:tod_end_night_end"   =  0.00
   )
 
   #4) covariance matrix (placeholder); diagonal, off-diagonals zero pending empirical structure.
@@ -408,7 +414,6 @@
 #' @param pkgname Package name; supplied by R.
 #'
 #' @keywords internal
-
 .onLoad <- function(libname, pkgname) {
   .set_defaults()
 }
@@ -427,7 +432,6 @@
 #'
 #' @importFrom lubridate hours yday
 #' @export
-
 get_param <- function(param) {
   .ncc_env[[param]]
 }
@@ -445,7 +449,6 @@ get_param <- function(param) {
 #' @return The assigned \code{value}, invisibly.
 #'
 #' @export
-
 set_param <- function(param, value) {
   .ncc_env[[param]] <- value
 }
@@ -464,7 +467,6 @@ set_param <- function(param, value) {
 #'   value unchanged.
 #'
 #' @export
-
 draw_param <- function(param) {
   val <- .ncc_env[[param]]
   if (is.function(val)) val() else val

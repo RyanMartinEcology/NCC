@@ -372,14 +372,20 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE, repor
       }
 
       #14) forage phase — every living agent forages in shuffled order, depleting vals
+      # consumed_today is the agent's cumulative intake earlier in the day, passed so
+      #   simulate_forage can hold the day's intake under max_daily_intake
+
+      day_start <- (d - 1) * 24 + 1
 
       for (i in living) {
+        consumed_today <- if (h > 1) sum(agents[[i]][day_start:(t - 1), forage_idx[1]], na.rm = TRUE) else 0
         fg <- simulate_forage(
           agents[[i]][t, x_idx],
           agents[[i]][t, y_idx],
           vals,
           geom_ref,
-          is_day
+          is_day,
+          consumed_today
         )
         agents[[i]][t, forage_idx] <- c(fg$forage_consumed, fg$energy_i)
         if (!is.na(fg$cell)) vals[fg$cell] <- vals[fg$cell] - fg$forage_consumed
