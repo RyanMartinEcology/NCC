@@ -43,7 +43,7 @@
   attr(.ncc_env$carrying_capacity, 'source') <- NA
   attr(.ncc_env$carrying_capacity, 'full_name') <- 'Global mean ifbfat threshold for carrying capacity'
 
-  .ncc_env$delta_n <- 5L
+  .ncc_env$delta_n <- 25L
   attr(.ncc_env$delta_n, 'unit') <- 'Agents'
   attr(.ncc_env$delta_n, 'source') <- NA
   attr(.ncc_env$delta_n, 'full_name') <- 'Number of agents to add per iteration'
@@ -289,7 +289,7 @@
   attr(.ncc_env$max_dmi, 'source') <- NA
   attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
 
-  .ncc_env$half_saturation <- 12000
+  .ncc_env$half_saturation <- 5000
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
   attr(.ncc_env$half_saturation, 'source') <- 'Spalinger and Hobbs 1992'
   attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response'
@@ -298,14 +298,14 @@
   #   intake for the day reaches this value, further foraging that day yields zero. set to NA
   #   to remove the cap entirely
 
-  .ncc_env$max_daily_intake <- 2500 #3870
+  .ncc_env$max_daily_intake <- NA #1914.6 # this is 1512 + 2 sd (201.3)
   attr(.ncc_env$max_daily_intake, 'unit') <- 'g/day'
-  attr(.ncc_env$max_daily_intake, 'source') <- 'Mazaika et al. 1992; Gedir et al. 2016'
+  attr(.ncc_env$max_daily_intake, 'source') <- 'Kraussman et al. 1988'
   attr(.ncc_env$max_daily_intake, 'full_name') <- 'Daily dry matter intake cap (NA disables the cap)'
 
   # -----------------------------------------------------------------------------------------------------
   # movement parameters — population-level multivariate normal distribution
-  # PLACEHOLDER values pending empirical iSSF estimates
+  # Empirical values from the 22-animal iSSF fit (issf_mvn_params.rds, fit_issf_v1.R, 2026-07-23)
   # One movement model per agent is drawn from MVN(mvn_mu, mvn_sigma) in create_agents()
   # The model is a single make_issf_model() with day/night carried by tod_end_night interactions;
   #   the tentative Gamma and von Mises are pooled (one set), and the day/night difference is
@@ -345,8 +345,11 @@
   attr(.ncc_env$n_candidates, 'source') <- NA
   attr(.ncc_env$n_candidates, 'full_name') <- 'Number of candidate steps drawn per redistribution kernel'
 
-  #2) the 15 MVN dimension names, in model-term order (must match the term names the kernel
-  #   evaluates; see the naming convention above)
+  #2) empirical population MVN from the 22 converged per-individual iSSF fits
+  #   (back-transformed coefficients, raw g/cell forage and metre distance-to-escape units).
+  #   the three log dims are on the log scale; day dims are the day slopes and the
+  #   :tod_end_night_end dims are night minus day offsets, matching the kernel's coding.
+  #   names and dimnames must stay exactly as below or validate_move_coefs() stops the run
 
   mvn_names <- c("log_shape", "log_scale", "log_kappa",
                  "sl_", "log(sl_)", "cos(ta_)",
@@ -355,52 +358,53 @@
                  "forage_biomass_end:tod_end_night_end", "escape_terrain_end:tod_end_night_end",
                  "canopy_cover_end:tod_end_night_end")
 
-  #3) mean vector (placeholder); the three log dims are on the log scale
-  #   main effects reproduce the prior daytime values; offsets reproduce the prior night values
-  #   (night = main + offset), e.g. cos_ta_ day 0.50, night 0.20, so offset -0.30
-  #   the sl_ night offset (-0.0455) halves the mean step length at night: it raises the gamma
-  #   rate from 1/22 to 1/11, holding shape, so mean falls from 2*22 = 44 m to 2*11 = 22 m
-  #   escape_terrain_end is calibrated to the covariate range (0 to ~0.353): day 8.0 gives
-  #   exp(8.0*0.353) ~ 16.8x preference for max- vs min-escape cells, night 11.0 (offset +3.0)
-  #   gives exp(11.0*0.353) ~ 48.6x, so selection is strong day and night, stronger at night
-  #   forage_biomass_end is calibrated to the covariate range (~500 to 360000, clamped): day
-  #   2e-6 gives exp(2e-6*359500) ~ 2x preference for richest vs poorest cells (weak), night
-  #   -1.0e-5 (offset -1.2e-5) gives exp(-1.0e-5*359500) ~ 1/36, so day is weak selection
-  #   and night is strong avoidance of high-forage cells
+  #3) empirical mean vector
 
   .ncc_env$mvn_mu <- c(
-    "log_shape"                            =  log(2.0),
-    "log_scale"                            =  log(22),
-    "log_kappa"                            =  log(0.35),
-    "sl_"                                  =  0.00,
-    "log(sl_)"                             =  0.00,
-    "cos(ta_)"                             =  0.50,
-    "forage_biomass_end"                   =  2e-6,
-    "escape_terrain_end"                   =  8.00,
-    "canopy_cover_end"                     = -0.05,
-    "sl_:tod_end_night_end"                = -0.0455,
-    "log(sl_):tod_end_night_end"           =  0.00,
-    "cos(ta_):tod_end_night_end"           = -0.30,
-    "forage_biomass_end:tod_end_night_end" = -1.2e-5,
-    "escape_terrain_end:tod_end_night_end" =  3.00,
-    "canopy_cover_end:tod_end_night_end"   =  0.00
+    "log_shape" = -6.905901e-01,
+    "log_scale" = 5.752240e+00,
+    "log_kappa" = -2.401935e+00,
+    "sl_" = 2.708199e-04,
+    "log(sl_)" = 2.547561e-01,
+    "cos(ta_)" = 2.411655e-01,
+    "forage_biomass_end" = -1.314966e-05,
+    "escape_terrain_end" = -2.759348e-03,
+    "canopy_cover_end" = -1.499584e-02,
+    "sl_:tod_end_night_end" = -6.798309e-04,
+    "log(sl_):tod_end_night_end" = -3.099616e-01,
+    "cos(ta_):tod_end_night_end" = -4.453259e-01,
+    "forage_biomass_end:tod_end_night_end" = 2.202214e-06,
+    "escape_terrain_end:tod_end_night_end" = -9.140983e-03,
+    "canopy_cover_end:tod_end_night_end" = -1.817424e-02
   )
 
-  #4) covariance matrix (placeholder); diagonal, off-diagonals zero pending empirical structure.
-  #   log dims keep variance 0.09 (= prior sdlog 0.3, squared); the geometry-correction dims
-  #   (sl_, log(sl_), cos(ta_), day and night) keep variance 0.10; the habitat-selection dims
-  #   use an among-individual CV of 0.20, var = (0.20 * mean)^2, so their spread scales with
-  #   the rescaled means (the canopy night offset has mean 0, so it is floored at 1e-4)
+  #4) empirical among-individual covariance (raw, no ridge), filled by row; the matrix is
+  #   symmetric, so row order matches mvn_names and the lower triangle mirrors the upper
 
-  mvn_var <- c(
-    0.09, 0.09, 0.09,
-    0.10, 0.10, 0.10,
-    (0.20 * 2e-6)^2, (0.20 * 8.00)^2, (0.20 * 0.05)^2,
-    0.10, 0.10, 0.10,
-    (0.20 * 1.2e-5)^2, (0.20 * 3.00)^2, 1e-4
+  .ncc_env$mvn_sigma <- matrix(
+    c(
+      2.882366e-03, -4.464718e-03, 8.722793e-03, -8.740639e-06, 7.661434e-04, -8.658777e-04, 2.402033e-07, 4.015119e-05, 2.828031e-04, 3.965397e-06, -1.174691e-03, 9.540974e-04, -2.387599e-09, 3.378749e-05, -2.795464e-04,
+      -4.464718e-03, 2.188443e-02, 3.953503e-02, -1.503428e-05, 2.730466e-03, 4.803810e-03, -6.424334e-07, 2.570127e-05, -6.163560e-04, 3.125365e-05, -3.545337e-03, -2.995137e-03, 1.022565e-07, 6.021152e-05, 1.024416e-03,
+      8.722793e-03, 3.953503e-02, 3.878611e-01, -1.520050e-04, 1.840269e-02, 1.506794e-02, -2.863984e-07, 4.646876e-04, 4.274598e-04, 1.799358e-04, -2.586744e-02, -1.799202e-02, -5.238914e-08, 6.929005e-04, 6.535663e-04,
+      -8.740639e-06, -1.503428e-05, -1.520050e-04, 1.471616e-07, -1.038839e-05, -1.108390e-05, -1.489394e-09, -5.894355e-07, -1.005024e-06, -1.147480e-07, 1.522050e-05, 1.189478e-06, 1.139270e-09, -7.536502e-07, 1.162117e-07,
+      7.661434e-04, 2.730466e-03, 1.840269e-02, -1.038839e-05, 3.600731e-03, 2.473636e-03, 2.442349e-08, -2.955850e-05, -2.777794e-04, 1.634906e-05, -4.301191e-03, -3.552449e-03, -5.159011e-08, 3.595848e-05, 3.651190e-05,
+      -8.658777e-04, 4.803810e-03, 1.506794e-02, -1.108390e-05, 2.473636e-03, 5.733813e-03, -7.615615e-08, -2.505558e-06, -1.948975e-04, 1.062269e-05, -2.993055e-03, -6.036426e-03, -1.567597e-08, 9.747783e-05, -8.080815e-06,
+      2.402033e-07, -6.424334e-07, -2.863984e-07, -1.489394e-09, 2.442349e-08, -7.615615e-08, 9.984019e-11, 6.135135e-09, 3.359245e-08, -1.013181e-10, -2.852680e-08, 3.068313e-07, -7.074911e-11, 1.130349e-08, -5.066978e-08,
+      4.015119e-05, 2.570127e-05, 4.646876e-04, -5.894355e-07, -2.955850e-05, -2.505558e-06, 6.135135e-09, 5.284780e-06, 1.544404e-05, -5.966437e-08, 1.969635e-05, 9.263255e-05, -6.425070e-10, 4.218420e-06, -4.320912e-06,
+      2.828031e-04, -6.163560e-04, 4.274598e-04, -1.005024e-06, -2.777794e-04, -1.948975e-04, 3.359245e-08, 1.544404e-05, 1.052512e-04, -1.370212e-06, 2.690999e-04, 3.768379e-04, 1.749792e-08, 7.852534e-06, -2.410731e-05,
+      3.965397e-06, 3.125365e-05, 1.799358e-04, -1.147480e-07, 1.634906e-05, 1.062269e-05, -1.013181e-10, -5.966437e-08, -1.370212e-06, 2.818054e-07, -2.338597e-05, -1.142270e-05, -9.489072e-10, 1.616836e-07, 2.302001e-06,
+      -1.174691e-03, -3.545337e-03, -2.586744e-02, 1.522050e-05, -4.301191e-03, -2.993055e-03, -2.852680e-08, 1.969635e-05, 2.690999e-04, -2.338597e-05, 5.298479e-03, 4.124893e-03, 3.964541e-08, -5.424057e-05, -6.580214e-05,
+      9.540974e-04, -2.995137e-03, -1.799202e-02, 1.189478e-06, -3.552449e-03, -6.036426e-03, 3.068313e-07, 9.263255e-05, 3.768379e-04, -1.142270e-05, 4.124893e-03, 1.026174e-02, -1.205752e-07, -2.201733e-05, -4.733059e-05,
+      -2.387599e-09, 1.022565e-07, -5.238914e-08, 1.139270e-09, -5.159011e-08, -1.567597e-08, -7.074911e-11, -6.425070e-10, 1.749792e-08, -9.489072e-10, 3.964541e-08, -1.205752e-07, 1.094024e-10, -8.291312e-09, 2.031977e-08,
+      3.378749e-05, 6.021152e-05, 6.929005e-04, -7.536502e-07, 3.595848e-05, 9.747783e-05, 1.130349e-08, 4.218420e-06, 7.852534e-06, 1.616836e-07, -5.424057e-05, -2.201733e-05, -8.291312e-09, 6.472494e-06, -7.952111e-06,
+      -2.795464e-04, 1.024416e-03, 6.535663e-04, 1.162117e-07, 3.651190e-05, -8.080815e-06, -5.066978e-08, -4.320912e-06, -2.410731e-05, 2.302001e-06, -6.580214e-05, -4.733059e-05, 2.031977e-08, -7.952111e-06, 1.149536e-04
+    ),
+    nrow = 15,
+    ncol = 15,
+    byrow = TRUE,
+    dimnames = list(mvn_names, mvn_names)
   )
-  .ncc_env$mvn_sigma <- diag(mvn_var)
-  dimnames(.ncc_env$mvn_sigma) <- list(mvn_names, mvn_names)
+
 
 
 }

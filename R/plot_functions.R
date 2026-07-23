@@ -66,10 +66,7 @@ summary_abm <- function(result) {
   n_agents <- length(agents)
   n_survived <- sum(vapply(
     agents,
-    function(a) {
-      alive <- which(a$status == "ALIVE")
-      length(alive) > 0 && a$status[max(alive)] == "ALIVE"
-    },
+    function(a) isTRUE(a$status[nrow(a)] == "ALIVE"),
     logical(1)
   ))
 
@@ -340,4 +337,3 @@ plot_abm <- function(result, forage_reference) {
     tracks = p_tracks
   )
 }
-
