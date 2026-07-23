@@ -49,8 +49,8 @@ calc_energy_bmr <- function(bm) {
 
 #' Calculate heat increment of feeding energy expenditure
 #'
-#' @description Returns the daily heat increment of feeding from the Dailey and
-#'   Hobbs (1989) per-body-mass rate, multiplied by the proportion of the diurnal
+#' @description Returns the daily heat increment of feeding from the Chappel and
+#'   Hudson (1978b) per-body-mass rate, multiplied by the proportion of the diurnal
 #'   period spent feeding (Courtemanch et al. 2014) and day length. Day length is
 #'   read from the precomputed per-time-step \code{day_length} vector (set in
 #'   \code{.set_defaults()} from study latitude and day-of-year).

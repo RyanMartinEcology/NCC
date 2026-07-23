@@ -177,9 +177,9 @@
   #3) heat increment of feeding (HIF) and the proportion of the diurnal period spent foraging,
   #   which together scale the daily feeding-related heat cost
 
-  .ncc_env$HIF <- 0.0018
+  .ncc_env$HIF <- 1.799 # 0.43 kcal * kg^-1 * h^-1 (ewes) x 4.184 kJ/kcal; Chappel and Hudson 1978b
   attr(.ncc_env$HIF, 'unit') <- 'kJ * kg^-1 * h^-1'
-  attr(.ncc_env$HIF, 'source') <- 'Dailey and Hobbs 1989'
+  attr(.ncc_env$HIF, 'source') <- 'Chappel and Hudson 1978b'
   attr(.ncc_env$HIF, 'full_name') <- 'Heat Increment of Feeding'
 
   .ncc_env$prop_day_forage <- 0.72
