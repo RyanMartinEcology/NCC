@@ -394,7 +394,8 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, start_range, forage_r
           vals,
           geom_ref,
           is_day,
-          consumed_today
+          consumed_today,
+          agent_params$rep_status[i]
         )
         agents[[i]][t, forage_idx] <- c(fg$forage_consumed, fg$energy_i)
         if (!is.na(fg$cell)) vals[fg$cell] <- vals[fg$cell] - fg$forage_consumed

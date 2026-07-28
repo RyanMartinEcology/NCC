@@ -4,10 +4,14 @@
 \alias{calc_dmi}
 \title{Calculate hourly dry matter intake}
 \usage{
-calc_dmi(density)
+calc_dmi(density, rep_status)
 }
 \arguments{
 \item{density}{Numeric. Forage density at the agent's current cell (g/cell).}
+
+\item{rep_status}{Numeric. Reproductive status (1 = lactating, 0 = not); selects
+the agent's slot of the reproductive-status-specific \code{half_saturation}
+vector (\code{rep_status + 1}: index 1 = nonrepro, index 2 = repro).}
 }
 \value{
 Numeric. Consumed dry matter intake (g/hour), floored at \code{density}.

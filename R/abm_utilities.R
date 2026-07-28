@@ -217,13 +217,16 @@ simulate_move <- function(x0, y0, heading0, issf, move, time) {
 #' @param consumed_today Numeric. Dry matter (g) the agent has already consumed
 #'   earlier in the current day; used to hold the day's intake under
 #'   \code{max_daily_intake}, and ignored at night.
+#' @param rep_status Numeric. The agent's reproductive status (1 = lactating,
+#'   0 = not), passed through to \code{calc_dmi} to select the reproductive-status-
+#'   specific \code{half_saturation}.
 #'
 #' @return A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),
 #'   and \code{cell} (the depleted cell index, or NA at night).
 #'
 #' @importFrom terra cellFromXY
 #' @keywords internal
-simulate_forage <- function(x, y, vals, geom, is_day, consumed_today) {
+simulate_forage <- function(x, y, vals, geom, is_day, consumed_today, rep_status) {
 
   # ----------------------------------------------------------------------------------------------------------------------
   # night gate
@@ -248,9 +251,10 @@ simulate_forage <- function(x, y, vals, geom, is_day, consumed_today) {
   # compute intake and energy
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) consumed dry matter intake, floored at available biomass inside calc_dmi
+  #1) consumed dry matter intake, floored at available biomass inside calc_dmi; the agent's
+  #   reproductive status selects its half_saturation slot
 
-  consumed <- calc_dmi(density)
+  consumed <- calc_dmi(density, rep_status)
 
   #2) cap the day's cumulative intake at max_daily_intake; NA leaves intake uncapped
 

@@ -160,12 +160,16 @@ calc_energy_rep <- function(bmr, j_post_partum, rep_status) {
 #'   energy intake.
 #'
 #' @param density Numeric. Forage density at the agent's current cell (g/cell).
+#' @param rep_status Numeric. Reproductive status (1 = lactating, 0 = not); selects
+#'   the agent's slot of the reproductive-status-specific \code{half_saturation}
+#'   vector (\code{rep_status + 1}: index 1 = nonrepro, index 2 = repro).
 #'
 #' @return Numeric. Consumed dry matter intake (g/hour), floored at \code{density}.
 #'
 #' @keywords internal
-calc_dmi <- function(density) {
-  dmi <- (get_param("max_dmi") * density) / (get_param("half_saturation") + density)
+calc_dmi <- function(density, rep_status) {
+  half_saturation <- get_param("half_saturation")[rep_status + 1L]
+  dmi <- (get_param("max_dmi") * density) / (half_saturation + density)
   min(dmi, density)
 }
 

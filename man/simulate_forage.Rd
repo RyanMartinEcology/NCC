@@ -4,7 +4,7 @@
 \alias{simulate_forage}
 \title{Simulate one foraging step for a single agent}
 \usage{
-simulate_forage(x, y, vals, geom, is_day, consumed_today)
+simulate_forage(x, y, vals, geom, is_day, consumed_today, rep_status)
 }
 \arguments{
 \item{x}{Numeric. Agent's current x coordinate.}
@@ -22,6 +22,10 @@ for \code{cellFromXY} (the day-start forage layer). Not modified.}
 \item{consumed_today}{Numeric. Dry matter (g) the agent has already consumed
 earlier in the current day; used to hold the day's intake under
 \code{max_daily_intake}, and ignored at night.}
+
+\item{rep_status}{Numeric. The agent's reproductive status (1 = lactating,
+0 = not), passed through to \code{calc_dmi} to select the reproductive-status-
+specific \code{half_saturation}.}
 }
 \value{
 A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),
