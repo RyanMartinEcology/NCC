@@ -16,11 +16,14 @@
 #'   cell number, after the day's consumption has been added.
 #' @param potential_next Numeric vector of the next day's potential biomass
 #'   (g/cell), indexed by cell number (the next layer of forage_reference).
+#' @param regrowth Logical. If \code{TRUE} (the default), the capped deficit is
+#'   decayed by \code{plant_regrowth_rate} (geometric regrowth); if \code{FALSE},
+#'   geometric regrowth is skipped and the capped deficit is returned undecayed.
 #'
 #' @return Numeric vector of the next day's start-of-day deficit (g/cell).
 #'
 #' @keywords internal
-update_forage <- function(deficit, potential_next) {
+update_forage <- function(deficit, potential_next, regrowth = TRUE) {
 
   # ----------------------------------------------------------------------------------------------------------------------
   # cap then decay the deficit
@@ -30,7 +33,12 @@ update_forage <- function(deficit, potential_next) {
 
   deficit <- pmin(deficit, potential_next)
 
-  #2) recover a fixed fraction of the capped deficit
+  #2) if geometric regrowth is off, return the capped deficit undecayed so grazed forage does not
+  #   recover
+
+  if (!regrowth) return(deficit)
+
+  #3) recover a fixed fraction of the capped deficit (geometric regrowth)
 
   rate <- get_param("plant_regrowth_rate")
 

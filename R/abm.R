@@ -114,6 +114,12 @@ agents_to_tibble <- function(agents_m, times) {
 
 #' Run the NCC Agent-Based Model
 #'
+#' @param forage_regrowth Logical. If \code{TRUE} (the default), depleted forage
+#'   recovers each day through the geometric regrowth function
+#'   (\code{update_forage}); if \code{FALSE}, geometric regrowth is disabled so
+#'   grazed biomass is not recovered. The end-of-day deficit is still capped so
+#'   realized biomass stays non-negative, and the seasonal phenology of potential
+#'   biomass (the daily \code{forage_reference} layers) is unaffected either way.
 #' @param verbose Logical. If \code{TRUE} (the default), progress messages are
 #'   printed as the simulation runs; if \code{FALSE}, all messages are suppressed.
 #' @param report_time Logical. If \code{TRUE}, the wall-clock run time and the
@@ -121,7 +127,7 @@ agents_to_tibble <- function(agents_m, times) {
 #'   \code{FALSE}.
 #'
 #' @export
-ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE, report_time = FALSE) {
+ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRUE, verbose = TRUE, report_time = FALSE) {
 
   # ------------------------------------------------------------------------------------------------------------------------
   # resolve time parameters
@@ -401,7 +407,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, verbose = TRUE, repor
     if (d < length(dates)) {
       deficit <- deficit + ((potential_d - deficit) - vals)
       potential_next <- terra::values(forage_reference[[d + 1]], mat = FALSE)
-      deficit <- update_forage(deficit, potential_next)
+      deficit <- update_forage(deficit, potential_next, regrowth = forage_regrowth)
     }
 
     #16) end of day: update each living agent's energy balance, mass, and survival

@@ -9,11 +9,19 @@ ncc_abm(
   dem,
   canopy,
   escape,
+  forage_regrowth = TRUE,
   verbose = TRUE,
   report_time = FALSE
 )
 }
 \arguments{
+\item{forage_regrowth}{Logical. If \code{TRUE} (the default), depleted forage
+recovers each day through the geometric regrowth function
+(\code{update_forage}); if \code{FALSE}, geometric regrowth is disabled so
+grazed biomass is not recovered. The end-of-day deficit is still capped so
+realized biomass stays non-negative, and the seasonal phenology of potential
+biomass (the daily \code{forage_reference} layers) is unaffected either way.}
+
 \item{verbose}{Logical. If \code{TRUE} (the default), progress messages are
 printed as the simulation runs; if \code{FALSE}, all messages are suppressed.}
 

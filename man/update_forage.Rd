@@ -4,7 +4,7 @@
 \alias{update_forage}
 \title{Cap and decay the grazing deficit at the end of a day}
 \usage{
-update_forage(deficit, potential_next)
+update_forage(deficit, potential_next, regrowth = TRUE)
 }
 \arguments{
 \item{deficit}{Numeric vector of the day's grazing deficit (g/cell), indexed by
@@ -12,6 +12,10 @@ cell number, after the day's consumption has been added.}
 
 \item{potential_next}{Numeric vector of the next day's potential biomass
 (g/cell), indexed by cell number (the next layer of forage_reference).}
+
+\item{regrowth}{Logical. If \code{TRUE} (the default), the capped deficit is
+decayed by \code{plant_regrowth_rate} (geometric regrowth); if \code{FALSE},
+geometric regrowth is skipped and the capped deficit is returned undecayed.}
 }
 \value{
 Numeric vector of the next day's start-of-day deficit (g/cell).
