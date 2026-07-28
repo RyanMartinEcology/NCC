@@ -294,7 +294,7 @@
   attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
 
   .ncc_env$half_saturation <- c(
-    nonrepro = 50000,
+    nonrepro = 25000,
     repro = 5000
   )
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
