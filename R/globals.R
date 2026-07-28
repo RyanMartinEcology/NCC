@@ -285,7 +285,7 @@
   #   value shared by all agents) and half_saturation the forage density at half-maximal intake.
   #   half_saturation is reproductive-status-specific: a named length-2 vector indexed by
   #   rep_status (nonrepro = non-lactating, repro = lactating). non-reproductive agents take a
-  #   higher half-saturation (10000) than reproductive agents (5000), so a given forage density
+  #   higher half-saturation (50000) than reproductive agents (5000), so a given forage density
   #   yields lower intake for non-reproductive females; both are tuned during calibration
 
   .ncc_env$max_dmi <- 372
@@ -294,7 +294,7 @@
   attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
 
   .ncc_env$half_saturation <- c(
-    nonrepro = 10000,
+    nonrepro = 50000,
     repro = 5000
   )
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
