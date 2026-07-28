@@ -294,11 +294,11 @@
   attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
 
   .ncc_env$half_saturation <- c(
-    nonrepro = 25000,
-    repro = 5000
+    nonrepro = 19800,
+    repro = 5800
   )
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
-  attr(.ncc_env$half_saturation, 'source') <- 'Spalinger and Hobbs 1992'
+  attr(.ncc_env$half_saturation, 'source') <- 'calibrated to observed capture IFBF (targets: repro 0.17843, non-repro 0.19400; Spalinger and Hobbs 1992 baseline)'
   attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response, by reproductive status'
 
   #2) daily dry matter intake cap applied within simulate_forage: once an agent's cumulative
