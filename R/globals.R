@@ -221,7 +221,7 @@
 
   .ncc_env$bm <- 56.91 # calculated from Teton capture data
 
-  .ncc_env$ifbf <- function() rnorm(1, mean = 8.39, sd = 2.91) / 100 # taken from Smiley et al. 2022
+  .ncc_env$ifbf <- function() max(rnorm(1, mean = 8.39, sd = 2.91) / 100, 0.01) # taken from Smiley et al. 2022, floored at 0.01 (1% body fat) to bar impossible negative/near-zero draws
 
   # -----------------------------------------------------------------------------------------------------
   # pregnancy and lactation parameters
