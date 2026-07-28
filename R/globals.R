@@ -285,7 +285,7 @@
   #   value shared by all agents) and half_saturation the forage density at half-maximal intake.
   #   half_saturation is reproductive-status-specific: a named length-2 vector indexed by
   #   rep_status (nonrepro = non-lactating, repro = lactating). non-reproductive agents take a
-  #   higher half-saturation (50000) than reproductive agents (5000), so a given forage density
+  #   higher half-saturation (25000) than reproductive agents (5000), so a given forage density
   #   yields lower intake for non-reproductive females; both are tuned during calibration
 
   .ncc_env$max_dmi <- 372
@@ -305,9 +305,9 @@
   #   intake for the day reaches this value, further foraging that day yields zero. set to NA
   #   to remove the cap entirely
 
-  .ncc_env$max_daily_intake <- 1914.6 #1914.6 # this is 1512 + 2 sd (201.3)
+  .ncc_env$max_daily_intake <- 2500 # calibrated cap; raised from 1914.6 (= 1512 + 2 SD of 201.3, Kraussman et al. 1988) so reproductive females can reach observed autumn body fat
   attr(.ncc_env$max_daily_intake, 'unit') <- 'g/day'
-  attr(.ncc_env$max_daily_intake, 'source') <- 'Kraussman et al. 1988'
+  attr(.ncc_env$max_daily_intake, 'source') <- 'calibrated (Kraussman et al. 1988 baseline 1914.6)'
   attr(.ncc_env$max_daily_intake, 'full_name') <- 'Daily dry matter intake cap (NA disables the cap)'
 
   # -----------------------------------------------------------------------------------------------------
