@@ -4,14 +4,12 @@
 \alias{create_agents}
 \title{Create and initialize agent population}
 \usage{
-create_agents(forage_raster, dem)
+create_agents(start_range)
 }
 \arguments{
-\item{forage_raster}{A \code{terra::SpatRaster}. Used to define the set of
-valid (non-NA) cells available for initializing agent starting positions.}
-
-\item{dem}{A \code{terra::SpatRaster} of elevation in meters. Used to restrict
-starting positions to a target elevation band.}
+\item{start_range}{An sf polygon or \code{terra::SpatVector} delimiting the
+population range (the 95\\% KDE home range) within which agent starting
+locations are drawn uniformly at random.}
 }
 \value{
 A named list with elements:

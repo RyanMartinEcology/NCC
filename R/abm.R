@@ -114,6 +114,9 @@ agents_to_tibble <- function(agents_m, times) {
 
 #' Run the NCC Agent-Based Model
 #'
+#' @param start_range An sf polygon or \code{terra::SpatVector} delimiting the
+#'   population range (the 95\% KDE home range) within which agent starting
+#'   locations are drawn uniformly at random.
 #' @param forage_regrowth Logical. If \code{TRUE} (the default), depleted forage
 #'   recovers each day through the geometric regrowth function
 #'   (\code{update_forage}); if \code{FALSE}, geometric regrowth is disabled so
@@ -127,7 +130,7 @@ agents_to_tibble <- function(agents_m, times) {
 #'   \code{FALSE}.
 #'
 #' @export
-ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRUE, verbose = TRUE, report_time = FALSE) {
+ncc_abm <- function(forage_reference, dem, canopy, escape, start_range, forage_regrowth = TRUE, verbose = TRUE, report_time = FALSE) {
 
   # ------------------------------------------------------------------------------------------------------------------------
   # resolve time parameters
@@ -216,7 +219,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRU
 
   #1) initialize agents and fixed individual parameters
 
-  init <- create_agents(forage_reference, dem)
+  init <- create_agents(start_range)
   agents <- init$agents
   agent_params <- init$agent_params
 

@@ -58,10 +58,9 @@ draw_movement_params <- function() {
 #'   status, initial body condition, movement parameters) are stored in a
 #'   separate \code{agent_params} dataframe. Both are returned as a named list.
 #'
-#' @param forage_raster A \code{terra::SpatRaster}. Used to define the set of
-#'   valid (non-NA) cells available for initializing agent starting positions.
-#' @param dem A \code{terra::SpatRaster} of elevation in meters. Used to restrict
-#'   starting positions to a target elevation band.
+#' @param start_range An sf polygon or \code{terra::SpatVector} delimiting the
+#'   population range (the 95\% KDE home range) within which agent starting
+#'   locations are drawn uniformly at random.
 #'
 #' @return A named list with elements:
 #'   \describe{
@@ -74,7 +73,7 @@ draw_movement_params <- function() {
 #'
 #' @importFrom stats rnorm runif
 #' @keywords internal
-create_agents <- function(forage_raster, dem) {
+create_agents <- function(start_range) {
 
   # ----------------------------------------------------------------------------------------------------------------------
   # set up dimensions, time axis, and identifiers
@@ -119,35 +118,29 @@ create_agents <- function(forage_raster, dem) {
   )
 
   # ----------------------------------------------------------------------------------------------------------------------
-  # place agents in the starting elevation band
+  # place agents within the starting range
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) target band of 10000-11500 ft converted to meters (1 ft = 0.3048 m); agents are
-  #   restricted to this elevation band at initialization
+  #1) accept the starting range as an sf polygon or a SpatVector (the 95% KDE population home range)
 
-  elev_min <- 10000 * 0.3048
-  elev_max <- 11500 * 0.3048
+  if (inherits(start_range, "sf")) start_range <- terra::vect(start_range)
 
-  #2) candidate starting cells: valid (non-NA) forage cells whose dem elevation is in band;
-  #   cells outside the study polygon are NA in forage and so are excluded
+  #2) draw one uniform-random location per agent from anywhere inside the range polygon(s); random
+  #   points are area-weighted across the disjoint sub-ranges, with no cell or elevation constraint
 
-  ref <- forage_raster[[1]]
-  ref_cells <- which(!is.na(terra::values(ref, mat = FALSE)))
-  ref_xy <- terra::xyFromCell(ref, ref_cells)
-
-  elev <- terra::extract(dem, ref_xy)[, 1]
-  in_band <- !is.na(elev) & elev >= elev_min & elev <= elev_max
-  start_xy <- ref_xy[in_band, , drop = FALSE]
-
-  #3) sample one starting cell per agent, with replacement only if too few cells are in band
-
-  start_idx <- sample(
-    nrow(start_xy),
-    n,
-    replace = nrow(start_xy) < n
+  start_pts <- terra::spatSample(
+    start_range,
+    size = n,
+    method = "random"
   )
-  x_init <- start_xy[start_idx, 1]
-  y_init <- start_xy[start_idx, 2]
+
+  stopifnot("spatSample returned fewer points than agents" = nrow(start_pts) >= n)
+
+  #3) pull the coordinates (exactly n, in the range's CRS)
+
+  start_xy <- terra::crds(start_pts)[seq_len(n), , drop = FALSE]
+  x_init <- start_xy[, 1]
+  y_init <- start_xy[, 2]
 
   # ----------------------------------------------------------------------------------------------------------------------
   # build per-agent state tibbles

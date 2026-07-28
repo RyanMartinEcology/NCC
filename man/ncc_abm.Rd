@@ -9,12 +9,17 @@ ncc_abm(
   dem,
   canopy,
   escape,
+  start_range,
   forage_regrowth = TRUE,
   verbose = TRUE,
   report_time = FALSE
 )
 }
 \arguments{
+\item{start_range}{An sf polygon or \code{terra::SpatVector} delimiting the
+population range (the 95\\% KDE home range) within which agent starting
+locations are drawn uniformly at random.}
+
 \item{forage_regrowth}{Logical. If \code{TRUE} (the default), depleted forage
 recovers each day through the geometric regrowth function
 (\code{update_forage}); if \code{FALSE}, geometric regrowth is disabled so
