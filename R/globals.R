@@ -298,7 +298,7 @@
   #   intake for the day reaches this value, further foraging that day yields zero. set to NA
   #   to remove the cap entirely
 
-  .ncc_env$max_daily_intake <- NA #1914.6 # this is 1512 + 2 sd (201.3)
+  .ncc_env$max_daily_intake <- 1914.6 #1914.6 # this is 1512 + 2 sd (201.3)
   attr(.ncc_env$max_daily_intake, 'unit') <- 'g/day'
   attr(.ncc_env$max_daily_intake, 'source') <- 'Kraussman et al. 1988'
   attr(.ncc_env$max_daily_intake, 'full_name') <- 'Daily dry matter intake cap (NA disables the cap)'
