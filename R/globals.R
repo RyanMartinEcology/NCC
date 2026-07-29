@@ -272,10 +272,10 @@
   # plant trait parameters
   # -----------------------------------------------------------------------------------------------------
 
-  #1) daily fractional regrowth of grazed forage, set from a 21-day half-life so a depleted
+  #1) daily fractional regrowth of grazed forage, set from a 42-day half-life so a depleted
   #   cell recovers toward its reference biomass over the season
 
-  .ncc_env$plant_regrowth_rate <- 1 - 0.5^(1/21) #21 day half-life on 42 day recovery period Osterheild 1992
+  .ncc_env$plant_regrowth_rate <- 1 - 0.5^(1/42) #42 day half-life on 42 day recovery period Osterheild 1992
 
   # -----------------------------------------------------------------------------------------------------
   # model calibration parameters
