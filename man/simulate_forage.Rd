@@ -24,8 +24,10 @@ earlier in the current day; used to hold the day's intake under
 \code{max_daily_intake}, and ignored at night.}
 
 \item{rep_status}{Numeric. The agent's reproductive status (1 = lactating,
-0 = not), passed through to \code{calc_dmi} to select the reproductive-status-
-specific \code{half_saturation}.}
+0 = not). Passed through to \code{calc_dmi} to select the agent's
+\code{half_saturation} slot, and used here to select its
+\code{max_daily_intake} slot (both are length-2 vectors indexed by
+\code{rep_status + 1L}).}
 }
 \value{
 A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),

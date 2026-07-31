@@ -275,7 +275,7 @@
   #1) daily fractional regrowth of grazed forage, set from a 42-day half-life so a depleted
   #   cell recovers toward its reference biomass over the season
 
-  .ncc_env$plant_regrowth_rate <- 1 - 0.5^(1/42) #42 day half-life on 42 day recovery period Osterheild 1992
+  .ncc_env$plant_regrowth_rate <- 1 - 0.5^(1/42) # Osterheild 1992
 
   # -----------------------------------------------------------------------------------------------------
   # model calibration parameters
@@ -283,10 +283,10 @@
 
   #1) the dry-matter-intake functional response: max_dmi is the intake asymptote (a single
   #   value shared by all agents) and half_saturation the forage density at half-maximal intake.
-  #   half_saturation is reproductive-status-specific: a named length-2 vector indexed by
-  #   rep_status (nonrepro = non-lactating, repro = lactating). non-reproductive agents take a
-  #   higher half-saturation (25000) than reproductive agents (5000), so a given forage density
-  #   yields lower intake for non-reproductive females; both are tuned during calibration
+  #   half_saturation is the SAME for both reproductive states: it is kept as a named length-2
+  #   vector indexed by rep_status (nonrepro = non-lactating, repro = lactating) so calc_dmi's
+  #   indexing is unchanged, but both slots hold the same value, so a given forage density yields
+  #   the same intake regardless of reproductive status
 
   .ncc_env$max_dmi <- 372
   attr(.ncc_env$max_dmi, 'unit') <- 'g/hour'
@@ -294,21 +294,26 @@
   attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
 
   .ncc_env$half_saturation <- c(
-    nonrepro = 19800,
-    repro = 5800
+    nonrepro = 12700,
+    repro = 12700
   )
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
-  attr(.ncc_env$half_saturation, 'source') <- 'calibrated to observed capture IFBF (targets: repro 0.17843, non-repro 0.19400; Spalinger and Hobbs 1992 baseline)'
-  attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response, by reproductive status'
+  attr(.ncc_env$half_saturation, 'source') <- 'chosen for ~0.95 survival (interpolated from the shared half-saturation sweep at max_daily_intake 5000); shared across reproductive states; Spalinger and Hobbs 1992 baseline'
+  attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response (shared across reproductive states)'
 
   #2) daily dry matter intake cap applied within simulate_forage: once an agent's cumulative
-  #   intake for the day reaches this value, further foraging that day yields zero. set to NA
-  #   to remove the cap entirely
+  #   intake for the day reaches its cap, further foraging that day yields zero. the cap is
+  #   reproductive-status-specific: a named length-2 vector indexed by rep_status (nonrepro =
+  #   non-lactating, repro = lactating), matching the half_saturation structure. set a slot to
+  #   NA to remove the cap for that group entirely
 
-  .ncc_env$max_daily_intake <- 2500 # calibrated cap; raised from 1914.6 (= 1512 + 2 SD of 201.3, Kraussman et al. 1988) so reproductive females can reach observed autumn body fat
+  .ncc_env$max_daily_intake <- c(
+    nonrepro = 2500,
+    repro = 2500
+  )
   attr(.ncc_env$max_daily_intake, 'unit') <- 'g/day'
-  attr(.ncc_env$max_daily_intake, 'source') <- 'calibrated (Kraussman et al. 1988 baseline 1914.6)'
-  attr(.ncc_env$max_daily_intake, 'full_name') <- 'Daily dry matter intake cap (NA disables the cap)'
+  attr(.ncc_env$max_daily_intake, 'source') <- 'calibrated (Kraussman et al. 1988 baseline 1914.6 = 1512 mean + 2 SD of 201.3); values pending recalibration by reproductive status'
+  attr(.ncc_env$max_daily_intake, 'full_name') <- 'Daily dry matter intake cap, by reproductive status (NA disables the cap)'
 
   # -----------------------------------------------------------------------------------------------------
   # movement parameters — population-level multivariate normal distribution

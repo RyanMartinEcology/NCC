@@ -218,8 +218,10 @@ simulate_move <- function(x0, y0, heading0, issf, move, time) {
 #'   earlier in the current day; used to hold the day's intake under
 #'   \code{max_daily_intake}, and ignored at night.
 #' @param rep_status Numeric. The agent's reproductive status (1 = lactating,
-#'   0 = not), passed through to \code{calc_dmi} to select the reproductive-status-
-#'   specific \code{half_saturation}.
+#'   0 = not). Passed through to \code{calc_dmi} to select the agent's
+#'   \code{half_saturation} slot, and used here to select its
+#'   \code{max_daily_intake} slot (both are length-2 vectors indexed by
+#'   \code{rep_status + 1L}).
 #'
 #' @return A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),
 #'   and \code{cell} (the depleted cell index, or NA at night).
@@ -256,9 +258,10 @@ simulate_forage <- function(x, y, vals, geom, is_day, consumed_today, rep_status
 
   consumed <- calc_dmi(density, rep_status)
 
-  #2) cap the day's cumulative intake at max_daily_intake; NA leaves intake uncapped
+  #2) cap the day's cumulative intake at max_daily_intake; the agent's reproductive status selects
+  #   its cap slot, and an NA in that slot leaves intake uncapped
 
-  cap <- get_param("max_daily_intake")
+  cap <- get_param("max_daily_intake")[[rep_status + 1L]]
   if (!is.na(cap)) {
     consumed <- min(consumed, max(0, cap - consumed_today))
   }
