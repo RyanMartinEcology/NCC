@@ -294,11 +294,11 @@
   attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
 
   .ncc_env$half_saturation <- c(
-    nonrepro = 12700,
-    repro = 12700
+    nonrepro = 8900,
+    repro = 8900
   )
   attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
-  attr(.ncc_env$half_saturation, 'source') <- 'chosen for ~0.95 survival (interpolated from the shared half-saturation sweep at max_daily_intake 5000); shared across reproductive states; Spalinger and Hobbs 1992 baseline'
+  attr(.ncc_env$half_saturation, 'source') <- 'shared across reproductive states; the value the per-state max_daily_intake caps were calibrated at; Spalinger and Hobbs 1992 baseline'
   attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response (shared across reproductive states)'
 
   #2) daily dry matter intake cap applied within simulate_forage: once an agent's cumulative
@@ -308,11 +308,11 @@
   #   NA to remove the cap for that group entirely
 
   .ncc_env$max_daily_intake <- c(
-    nonrepro = 2500,
-    repro = 2500
+    nonrepro = 1700,
+    repro = 3050
   )
   attr(.ncc_env$max_daily_intake, 'unit') <- 'g/day'
-  attr(.ncc_env$max_daily_intake, 'source') <- 'calibrated (Kraussman et al. 1988 baseline 1914.6 = 1512 mean + 2 SD of 201.3); values pending recalibration by reproductive status'
+  attr(.ncc_env$max_daily_intake, 'source') <- 'calibrated per reproductive state to the observed capture IFBF means (repro 0.17843, non-repro 0.19400) at half_saturation 8900; Kraussman et al. 1988 baseline 1914.6 = 1512 mean + 2 SD of 201.3'
   attr(.ncc_env$max_daily_intake, 'full_name') <- 'Daily dry matter intake cap, by reproductive status (NA disables the cap)'
 
   # -----------------------------------------------------------------------------------------------------
