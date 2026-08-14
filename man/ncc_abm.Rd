@@ -9,12 +9,19 @@ ncc_abm(
   dem,
   canopy,
   escape,
+  year = 2024,
   forage_regrowth = TRUE,
   verbose = TRUE,
   report_time = FALSE
 )
 }
 \arguments{
+\item{year}{Numeric. Calendar year the simulated season runs in, defaulting to 2024.
+Sets \code{t_start} and \code{t_end} from the stored season month-day bounds and
+refreshes the daylight schedule, then selects the \code{forage_reference} layers whose
+\code{terra::time()} dates match the simulated days. Point this at the year of the
+forage rasters being supplied.}
+
 \item{forage_regrowth}{Logical. If \code{TRUE} (the default), depleted forage
 recovers each day through the geometric regrowth function
 (\code{update_forage}); if \code{FALSE}, geometric regrowth is disabled so

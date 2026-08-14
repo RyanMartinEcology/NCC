@@ -4,24 +4,39 @@
 \alias{calc_dmi}
 \title{Calculate hourly dry matter intake}
 \usage{
-calc_dmi(density, rep_status)
+calc_dmi(density, rep_status, bm, forage_hours, cell_area)
 }
 \arguments{
 \item{density}{Numeric. Forage density at the agent's current cell (g/cell).}
 
 \item{rep_status}{Numeric. Reproductive status (1 = lactating, 0 = not); selects
-the agent's slot of the reproductive-status-specific \code{half_saturation}
-vector (\code{rep_status + 1}: index 1 = nonrepro, index 2 = repro).}
+the agent's slot of the \code{intake_multiplier} vector
+(\code{rep_status + 1}: index 1 = nonrepro, index 2 = repro).}
+
+\item{bm}{Numeric. The agent's current body mass (kg).}
+
+\item{forage_hours}{Numeric. Number of foraging (daylight) hours in the current
+day, used to spread the daily intake across the hours the agent can eat.}
+
+\item{cell_area}{Numeric. Area of one raster cell (m^2), used to convert the
+cell's g/cell biomass to the kg/ha units the response is defined in.}
 }
 \value{
 Numeric. Consumed dry matter intake (g/hour), floored at \code{density}.
 }
 \description{
 Returns the hourly dry matter intake at the agent's current cell
-as a Michaelis-Menten functional response of forage density (g/cell) with a
-\code{max_dmi} asymptote. Intake is floored at the available biomass so that
-consumption cannot exceed what the cell holds; the returned value is the
-actual consumed amount and is used both to deplete the cell and to compute
-energy intake.
+from a negative-exponential functional response of standing vegetation
+biomass, mass-specific in metabolic body mass:
+\deqn{I_{day} = intake\_max \times bm^{0.75} \times (1 - e^{-V / intake\_decay})}
+where \eqn{V} is biomass in kg/ha. The published response is a daily intake,
+so it is divided by the number of hours the agent can forage that day to give
+an hourly rate; summed across the day's foraging hours this returns the daily
+curve evaluated at the mean density the agent actually experienced. Intake is
+floored at the available biomass so consumption cannot exceed what the cell
+holds; the returned value is the actual consumed amount and is used both to
+deplete the cell and to compute energy intake. The whole response is scaled by
+the agent's \code{intake_multiplier} slot, which is 1 for both reproductive
+states by default.
 }
 \keyword{internal}

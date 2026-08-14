@@ -29,33 +29,17 @@
   # simulation parameters
   # -----------------------------------------------------------------------------------------------------
 
-  #1) agent-scaling loop constants: the model is run in replicate (replicates) at agent counts
-  #   rising by delta_n up to n_max, and the level at which mean body condition reaches the
-  #   carrying_capacity threshold is taken as nutritional carrying capacity
-
-  .ncc_env$replicates <- 100L
-  attr(.ncc_env$replicates, 'unit') <- 'iterations'
-  attr(.ncc_env$replicates, 'source') <- NA
-  attr(.ncc_env$replicates, 'full_name') <- 'Number of model replicates per agent level'
+  #1) the ingesta-free body fat threshold that defines nutritional carrying capacity. abundance is
+  #   swept by the driver scripts rather than inside the model, so no loop constants live here
 
   .ncc_env$carrying_capacity <- 0.1466
   attr(.ncc_env$carrying_capacity, 'unit') <- 'Percent'
   attr(.ncc_env$carrying_capacity, 'source') <- NA
   attr(.ncc_env$carrying_capacity, 'full_name') <- 'Global mean ifbfat threshold for carrying capacity'
 
-  .ncc_env$delta_n <- 25L
-  attr(.ncc_env$delta_n, 'unit') <- 'Agents'
-  attr(.ncc_env$delta_n, 'source') <- NA
-  attr(.ncc_env$delta_n, 'full_name') <- 'Number of agents to add per iteration'
-
-  .ncc_env$n_max <- 400L #CHANGE to match manuscript
-  attr(.ncc_env$n_max, 'unit') <- 'Agents'
-  attr(.ncc_env$n_max, 'source') <- NA
-  attr(.ncc_env$n_max, 'full_name') <- 'Maximum number of agents'
-
   #2) the mutable agent count for the run currently in progress
 
-  .ncc_env$n_agents <- 50 # denotes current number of agents, can be updated within the model
+  .ncc_env$n_agents <- 125 # denotes current number of agents, can be updated within the model
 
   #3) movement-only steps each agent takes before the simulation proper begins, so that starting
   #   positions reflect the agents' own movement models rather than where they were dropped
@@ -69,68 +53,43 @@
   # time parameters
   # -----------------------------------------------------------------------------------------------------
 
-  #1) hourly time step (t_delta) across a fixed summer-to-autumn window in the study time zone;
-  #   t_start and t_end bound every hourly and daily sequence built elsewhere in the model
+  #1) hourly time step (t_delta) and the summer-to-autumn window in the study time zone. the season
+  #   is stored as month-day strings plus a simulation year so a run can be pointed at a different
+  #   year's rasters; t_start and t_end are DERIVED from them by .set_season() and bound every
+  #   hourly and daily sequence built elsewhere in the model. set the season through
+  #   ncc_abm(year = ) or .set_season(), not by assigning t_start / t_end directly
 
   .ncc_env$t_delta <- lubridate::hours(1)
-  .ncc_env$t_start <- as.POSIXct("2025-07-01", tz = "America/Denver") # start of simulation
-  .ncc_env$t_end <- as.POSIXct("2025-10-31", tz = "America/Denver") # end of simulation
+  .ncc_env$season_start_md <- "07-01"
+  .ncc_env$season_end_md <- "10-15"
+  .ncc_env$sim_year <- 2024
+
+  .ncc_env$t_start <- as.POSIXct(
+    paste0(.ncc_env$sim_year, "-", .ncc_env$season_start_md),
+    tz = "America/Denver"
+  )
+  .ncc_env$t_end <- as.POSIXct(
+    paste0(.ncc_env$sim_year, "-", .ncc_env$season_end_md),
+    tz = "America/Denver"
+  )
 
   # -----------------------------------------------------------------------------------------------------
   # spatial parameters
   # -----------------------------------------------------------------------------------------------------
 
-  #1) the projected coordinate system shared by all model rasters
-
-  .ncc_env$epsg <- "EPSG:32612"
-
-  #2) study-area coordinates, used only to derive the daylight schedule below
+  #1) study-area latitude, used only to derive the daylight schedule. the rasters carry their own
+  #   projection, so no CRS is stored here
 
   .ncc_env$study_lat <- 43.74075
   attr(.ncc_env$study_lat, 'unit') <- 'decimal degrees'
   attr(.ncc_env$study_lat, 'source') <- 'Grand Teton summit — placeholder'
   attr(.ncc_env$study_lat, 'full_name') <- 'Study area latitude for solar position calculation'
 
-  .ncc_env$study_lon <- -110.80252
-  attr(.ncc_env$study_lon, 'unit') <- 'decimal degrees'
-  attr(.ncc_env$study_lon, 'source') <- 'Grand Teton summit — placeholder'
-  attr(.ncc_env$study_lon, 'full_name') <- 'Study area longitude for solar position calculation'
-
   # -----------------------------------------------------------------------------------------------------
-  # daylight schedule — precomputed logical, one entry per hourly time step
-  # geometric sunrise/sunset from study latitude and day-of-year (clock noon ~ solar noon)
-  # positionally aligned with seq(t_start, t_end, by = t_delta); index by loop position t
-  # NOTE: computed at load from current t_start/t_end/t_delta/study_lat; if those change,
-  #   rerun .set_defaults() to refresh this vector
+  # daylight schedule — see .refresh_daylight(), called here so the vectors exist at load
   # -----------------------------------------------------------------------------------------------------
 
-  #1) hourly time sequence matching the model clock (t_start to t_end by t_delta)
-
-  daylight_times <- seq(
-    .ncc_env$t_start,
-    .ncc_env$t_end,
-    by = as.numeric(.ncc_env$t_delta, units = "secs")
-  )
-
-  #2) solar geometry from latitude and day of year: declination and the resulting half-day
-  #   length (hours from solar noon to sunset), plus the local clock hour of each step
-
-  daylight_lat_rad <- .ncc_env$study_lat * pi / 180
-  daylight_doy <- lubridate::yday(daylight_times)
-  daylight_decl <- 0.409 * sin(2 * pi / 365 * daylight_doy - 1.39)
-  daylight_half_day <- (12 / pi) * acos(-tan(daylight_lat_rad) * tan(daylight_decl))
-  daylight_hour <- lubridate::hour(daylight_times) + lubridate::minute(daylight_times) / 60
-
-  #3) daylight flag per step: TRUE when the clock hour falls within the half-day of solar noon
-
-  .ncc_env$is_daylight <- daylight_hour >= (12 - daylight_half_day) &
-    daylight_hour <= (12 + daylight_half_day)
-
-  #4) day length (hours) per step, equal to twice the half-day; depends only on day of year so
-  #   it is constant within a day. this is exactly the quantity calc_energy_hif() formerly
-  #   recomputed per call: (24/pi)*acos(...) = 2 * half-day
-
-  .ncc_env$day_length <- 2 * daylight_half_day
+  .refresh_daylight()
 
   # -----------------------------------------------------------------------------------------------------
   # energy parameters
@@ -148,11 +107,6 @@
   attr(.ncc_env$DE_to_ME_conversion_factor, 'unit') <- 'Percent'
   attr(.ncc_env$DE_to_ME_conversion_factor, 'source') <- 'NRC 2007'
   attr(.ncc_env$DE_to_ME_conversion_factor, 'full_name') <- NA
-
-  .ncc_env$ME <- .ncc_env$DE * .ncc_env$DE_to_ME_conversion_factor
-  attr(.ncc_env$ME, 'unit') <- 'kJ/g'
-  attr(.ncc_env$ME, 'source') <- NA
-  attr(.ncc_env$ME, 'full_name') <- 'Metabolizable Energy'
 
   #2) slope-binned locomotion cost factors, from steep descent (d_10) through flat (f) to steep
   #   incline (i_10); calc_energy_loc() selects one per step by the signed slope of the step
@@ -195,36 +149,20 @@
   attr(.ncc_env$prop_day_forage, 'source') <- 'Courtemanch et al. 2014'
   attr(.ncc_env$prop_day_forage, 'full_name') <- 'Proportion of the diurnal period spent feeding'
 
-  #4) fat-reserve energetics: the energy density of fat (E_fat) and the catabolism and
-  #   deposition efficiencies that convert a net daily energy balance into a change in fat mass
+  #4) fat-reserve energetics: the energy density of fat, which converts a net daily energy balance
+  #   into a change in fat mass. deposition and catabolism efficiencies were removed from the model,
+  #   so the conversion is lossless in both directions
 
   .ncc_env$E_fat <- 39.5
   attr(.ncc_env$E_fat, 'unit') <- 'kJ/g'
   attr(.ncc_env$E_fat, 'source') <- 'Robbins 1993'
   attr(.ncc_env$E_fat, 'full_name') <- 'Energy Value of Fat Reserves'
 
-  .ncc_env$fat_eff <- 0.65
-  attr(.ncc_env$fat_eff, 'unit') <- 'Percent'
-  attr(.ncc_env$fat_eff, 'source') <- 'Robbins 1993'
-  attr(.ncc_env$fat_eff, 'full_name') <- 'Fat Catabolism Efficiency'
-
-  .ncc_env$fat_dep <- 0.65
-  attr(.ncc_env$fat_dep, 'unit') <- 'Percent'
-  attr(.ncc_env$fat_dep, 'source') <- 'Robbins 1993'
-  attr(.ncc_env$fat_dep, 'full_name') <- 'Fat Deposition Efficiency'
-
   # -----------------------------------------------------------------------------------------------------
   # body condition and body mass parameters
   # -----------------------------------------------------------------------------------------------------
 
-  #1) energy threshold below which an agent is treated as dead
-
-  .ncc_env$death <- 0
-  attr(.ncc_env$death, 'unit') <- 'kJ'
-  attr(.ncc_env$death, 'source') <- NA
-  attr(.ncc_env$death, 'full_name') <- 'Energy Threshold for Death'
-
-  #2) starting body mass (bm) and the among-individual ingesta-free body fat draw (ifbf),
+  #1) starting body mass (bm) and the among-individual ingesta-free body fat draw (ifbf),
   #   sampled once per agent at initialization
 
   .ncc_env$bm <- 56.91 # calculated from Teton capture data
@@ -237,7 +175,7 @@
 
   #1) reproductive state and its lactation energy cost: rep_status is drawn per agent,
   #   j_post_partum sets the starting day post partum, lactation_modifier gives the daily cost
-  #   multiplier indexed by days post partum, and calc_lactation_modifier performs the lookup
+  #   multiplier indexed by days post partum, which calc_energy_rep() looks up directly
 
   .ncc_env$rep_status <- function() rbinom(1, 1, 0.678571429) #this is the proportion of captured ewes that showed some evidence of lactation
   .ncc_env$j_post_partum <- 25
@@ -272,9 +210,6 @@
                                    0.408922529, 0.405782316, 0.402666217, 0.399574047, 0.396505623,
                                    0.393460761, 0.390439282, 0.387441006, 0.384465754, 0.38151335,
                                    0.378583618, 0)
-  .ncc_env$calc_lactation_modifier <- function(j_post_partum) {
-    get_param("lactation_modifier")[as.integer(j_post_partum)]
-  }
 
   # -----------------------------------------------------------------------------------------------------
   # plant trait parameters
@@ -289,39 +224,38 @@
   # model calibration parameters
   # -----------------------------------------------------------------------------------------------------
 
-  #1) the dry-matter-intake functional response: max_dmi is the intake asymptote (a single
-  #   value shared by all agents) and half_saturation the forage density at half-maximal intake.
-  #   half_saturation is the SAME for both reproductive states: it is kept as a named length-2
-  #   vector indexed by rep_status (nonrepro = non-lactating, repro = lactating) so calc_dmi's
-  #   indexing is unchanged, but both slots hold the same value, so a given forage density yields
-  #   the same intake regardless of reproductive status
+  #1) the dry-matter-intake functional response, a negative exponential in standing vegetation
+  #   biomass and mass-specific in metabolic body mass:
+  #     daily intake (g) = intake_max * bm^0.75 * (1 - exp(-V / intake_decay))
+  #   with V the biomass in kg/ha. intake_max is the asymptote in g per kg^0.75 per day and
+  #   intake_decay the biomass scale over which intake approaches it (half-maximal intake occurs
+  #   at intake_decay * log(2) kg/ha). the response is SHARED across reproductive states, and the
+  #   daily total is spread evenly across the day's foraging hours by calc_dmi
 
-  .ncc_env$max_dmi <- 372
-  attr(.ncc_env$max_dmi, 'unit') <- 'g/hour'
-  attr(.ncc_env$max_dmi, 'source') <- NA
-  attr(.ncc_env$max_dmi, 'full_name') <- 'Maximum dry matter intake (DMI functional response asymptote)'
+  .ncc_env$intake_max <- 83.4
+  attr(.ncc_env$intake_max, 'unit') <- 'g * kg^-0.75 * day^-1'
+  attr(.ncc_env$intake_max, 'source') <- NA
+  attr(.ncc_env$intake_max, 'full_name') <- 'Mass-specific daily dry matter intake asymptote'
 
-  .ncc_env$half_saturation <- c(
-    nonrepro = 8900,
-    repro = 8900
+  .ncc_env$intake_decay <- 111
+  attr(.ncc_env$intake_decay, 'unit') <- 'kg/ha'
+  attr(.ncc_env$intake_decay, 'source') <- NA
+  attr(.ncc_env$intake_decay, 'full_name') <- 'Biomass scale constant of the intake functional response'
+
+  #2) multiplier applied to the intake response, as a named length-2 vector indexed by rep_status
+  #   (nonrepro = non-lactating, repro = lactating). this carries the reproductive-state difference
+  #   in intake now that the daily cap is gone. the nonrepro slot is 1, so that class takes the
+  #   response as published; the repro slot carries a 1.45x lactation allowance, raising the
+  #   reproductive asymptote at bm = 56.91 kg from 1728 to 2506 g/day against the 3050 the retired
+  #   max_daily_intake enforced. tuned against the capture IFBF targets, not independently sourced
+
+  .ncc_env$intake_multiplier <- c(
+    nonrepro = 1,
+    repro = 1.45
   )
-  attr(.ncc_env$half_saturation, 'unit') <- 'g/cell'
-  attr(.ncc_env$half_saturation, 'source') <- 'shared across reproductive states; the value the per-state max_daily_intake caps were calibrated at; Spalinger and Hobbs 1992 baseline'
-  attr(.ncc_env$half_saturation, 'full_name') <- 'Half-saturation constant for DMI functional response (shared across reproductive states)'
-
-  #2) daily dry matter intake cap applied within simulate_forage: once an agent's cumulative
-  #   intake for the day reaches its cap, further foraging that day yields zero. the cap is
-  #   reproductive-status-specific: a named length-2 vector indexed by rep_status (nonrepro =
-  #   non-lactating, repro = lactating), matching the half_saturation structure. set a slot to
-  #   NA to remove the cap for that group entirely
-
-  .ncc_env$max_daily_intake <- c(
-    nonrepro = 1700,
-    repro = 3050
-  )
-  attr(.ncc_env$max_daily_intake, 'unit') <- 'g/day'
-  attr(.ncc_env$max_daily_intake, 'source') <- 'calibrated per reproductive state to the observed capture IFBF means (repro 0.17843, non-repro 0.19400) at half_saturation 8900; Kraussman et al. 1988 baseline 1914.6 = 1512 mean + 2 SD of 201.3'
-  attr(.ncc_env$max_daily_intake, 'full_name') <- 'Daily dry matter intake cap, by reproductive status (NA disables the cap)'
+  attr(.ncc_env$intake_multiplier, 'unit') <- 'multiplier'
+  attr(.ncc_env$intake_multiplier, 'source') <- NA
+  attr(.ncc_env$intake_multiplier, 'full_name') <- 'Intake functional response multiplier, by reproductive status'
 
   # -----------------------------------------------------------------------------------------------------
   # movement parameters — population-level multivariate normal distribution
@@ -427,6 +361,97 @@
 
 
 
+}
+
+#' Recompute the daylight schedule from the current clock and location
+#'
+#' @description Rebuilds \code{is_daylight} and \code{day_length} in \code{.ncc_env} from the
+#'   current \code{t_start}, \code{t_end}, \code{t_delta}, and \code{study_lat}. Both vectors are
+#'   positionally aligned with \code{seq(t_start, t_end, by = t_delta)} and are indexed by loop
+#'   position, so they are only valid for the season they were built from. Called at load by
+#'   \code{.set_defaults()} and again by \code{.set_season()} whenever the window moves, which is
+#'   what keeps them from going stale against the clock.
+#'
+#'   Sunrise and sunset are geometric, from study latitude and day of year, with clock noon taken
+#'   as solar noon.
+#'
+#' @return Called for its side effect; the return value is not used.
+#'
+#' @keywords internal
+.refresh_daylight <- function() {
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # daylight schedule, one entry per hourly time step
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) hourly time sequence matching the model clock (t_start to t_end by t_delta)
+
+  daylight_times <- seq(
+    .ncc_env$t_start,
+    .ncc_env$t_end,
+    by = as.numeric(.ncc_env$t_delta, units = "secs")
+  )
+
+  #2) solar geometry from latitude and day of year: declination and the resulting half-day
+  #   length (hours from solar noon to sunset), plus the local clock hour of each step
+
+  daylight_lat_rad <- .ncc_env$study_lat * pi / 180
+  daylight_doy <- lubridate::yday(daylight_times)
+  daylight_decl <- 0.409 * sin(2 * pi / 365 * daylight_doy - 1.39)
+  daylight_half_day <- (12 / pi) * acos(-tan(daylight_lat_rad) * tan(daylight_decl))
+  daylight_hour <- lubridate::hour(daylight_times) + lubridate::minute(daylight_times) / 60
+
+  #3) daylight flag per step: TRUE when the clock hour falls within the half-day of solar noon
+
+  .ncc_env$is_daylight <- daylight_hour >= (12 - daylight_half_day) &
+    daylight_hour <= (12 + daylight_half_day)
+
+  #4) day length (hours) per step, equal to twice the half-day; depends only on day of year so
+  #   it is constant within a day. this is exactly the quantity calc_energy_hif() formerly
+  #   recomputed per call: (24/pi)*acos(...) = 2 * half-day
+
+  .ncc_env$day_length <- 2 * daylight_half_day
+
+  invisible(NULL)
+}
+
+#' Point the simulation clock at a given year
+#'
+#' @description Rebuilds \code{t_start} and \code{t_end} for \code{year} from the stored
+#'   \code{season_start_md} and \code{season_end_md}, then refreshes the daylight schedule so the
+#'   clock and the derived vectors cannot drift apart. This is how the model is pointed at a
+#'   different year's forage rasters; \code{ncc_abm()} calls it before reading the clock.
+#'
+#'   Because \code{t_start} and \code{t_end} are derived here, assigning them directly through
+#'   \code{set_param()} does not survive the next \code{ncc_abm()} call. Change the season through
+#'   \code{season_start_md} / \code{season_end_md} and the \code{year} argument instead.
+#'
+#' @param year Numeric or integer. Calendar year the season runs in.
+#'
+#' @return Called for its side effect; the return value is not used.
+#'
+#' @keywords internal
+.set_season <- function(year) {
+
+  #1) the season window for this year, from the stored month-day bounds
+
+  .ncc_env$sim_year <- year
+
+  .ncc_env$t_start <- as.POSIXct(
+    paste0(year, "-", .ncc_env$season_start_md),
+    tz = "America/Denver"
+  )
+
+  .ncc_env$t_end <- as.POSIXct(
+    paste0(year, "-", .ncc_env$season_end_md),
+    tz = "America/Denver"
+  )
+
+  #2) the daylight vectors are sized and dated to the window, so they move with it
+
+  .refresh_daylight()
+
+  invisible(NULL)
 }
 
 #' Package load hook

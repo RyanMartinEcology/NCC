@@ -153,23 +153,50 @@ calc_energy_rep <- function(bmr, j_post_partum, rep_status) {
 #' Calculate hourly dry matter intake
 #'
 #' @description Returns the hourly dry matter intake at the agent's current cell
-#'   as a Michaelis-Menten functional response of forage density (g/cell) with a
-#'   \code{max_dmi} asymptote. Intake is floored at the available biomass so that
-#'   consumption cannot exceed what the cell holds; the returned value is the
-#'   actual consumed amount and is used both to deplete the cell and to compute
-#'   energy intake.
+#'   from a negative-exponential functional response of standing vegetation
+#'   biomass, mass-specific in metabolic body mass:
+#'   \deqn{I_{day} = intake\_max \times bm^{0.75} \times (1 - e^{-V / intake\_decay})}
+#'   where \eqn{V} is biomass in kg/ha. The published response is a daily intake,
+#'   so it is divided by the number of hours the agent can forage that day to give
+#'   an hourly rate; summed across the day's foraging hours this returns the daily
+#'   curve evaluated at the mean density the agent actually experienced. Intake is
+#'   floored at the available biomass so consumption cannot exceed what the cell
+#'   holds; the returned value is the actual consumed amount and is used both to
+#'   deplete the cell and to compute energy intake. The whole response is scaled by
+#'   the agent's \code{intake_multiplier} slot, which is 1 for both reproductive
+#'   states by default.
 #'
 #' @param density Numeric. Forage density at the agent's current cell (g/cell).
 #' @param rep_status Numeric. Reproductive status (1 = lactating, 0 = not); selects
-#'   the agent's slot of the reproductive-status-specific \code{half_saturation}
-#'   vector (\code{rep_status + 1}: index 1 = nonrepro, index 2 = repro).
+#'   the agent's slot of the \code{intake_multiplier} vector
+#'   (\code{rep_status + 1}: index 1 = nonrepro, index 2 = repro).
+#' @param bm Numeric. The agent's current body mass (kg).
+#' @param forage_hours Numeric. Number of foraging (daylight) hours in the current
+#'   day, used to spread the daily intake across the hours the agent can eat.
+#' @param cell_area Numeric. Area of one raster cell (m^2), used to convert the
+#'   cell's g/cell biomass to the kg/ha units the response is defined in.
 #'
 #' @return Numeric. Consumed dry matter intake (g/hour), floored at \code{density}.
 #'
 #' @keywords internal
-calc_dmi <- function(density, rep_status) {
-  half_saturation <- get_param("half_saturation")[rep_status + 1L]
-  dmi <- (get_param("max_dmi") * density) / (half_saturation + density)
+calc_dmi <- function(density, rep_status, bm, forage_hours, cell_area) {
+
+  #1) convert the cell's biomass from g/cell to kg/ha. one kg/ha spread over a cell of cell_area
+  #   square metres is cell_area / 10 grams, so dividing by that factor inverts the conversion
+
+  biomass_kg_ha <- density / (cell_area / 10)
+
+  #2) the daily intake for this body mass at this biomass, scaled by the agent's reproductive-state
+  #   multiplier, then the even hourly share of it
+
+  daily <- get_param("intake_max") * bm^0.75 *
+    (1 - exp(-biomass_kg_ha / get_param("intake_decay"))) *
+    get_param("intake_multiplier")[[rep_status + 1L]]
+
+  dmi <- daily / forage_hours
+
+  #3) an agent cannot eat more than the cell holds
+
   min(dmi, density)
 }
 
@@ -226,10 +253,10 @@ calc_energy_net <- function(energy_i_window, energy_bmr, energy_hif, energy_loc,
 
 #' Calculate daily fat-mass change
 #'
-#' @description Converts the day's net energy balance into a change in fat mass.
-#'   A surplus is deposited at the fat deposition efficiency; a deficit is covered
-#'   by mobilizing fat at the fat catabolism efficiency. Operates on a scalar; the
-#'   caller writes the returned value to the agent's row.
+#' @description Converts the day's net energy balance into a change in fat mass at
+#'   the energy density of fat (\code{E_fat}), with no conversion loss in either
+#'   direction: a surplus deposits and a deficit mobilizes at the same rate.
+#'   Operates on a scalar; the caller writes the returned value to the agent's row.
 #'
 #' @param net Numeric. Daily net energy balance (kJ/day).
 #'
@@ -242,14 +269,10 @@ calc_fat_change <- function(net) {
   # convert net energy balance to a change in fat mass
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) a surplus is deposited at the fat deposition efficiency; a deficit is covered by
-  #   mobilizing fat at the catabolism efficiency
+  #1) surplus and deficit both convert at the energy density of fat, so the sign of net carries
+  #   straight through and no branch is needed
 
-  if (net >= 0) {
-    fat_change_g <- net * get_param("fat_dep") / get_param("E_fat")
-  } else {
-    fat_change_g <- net / (get_param("fat_eff") * get_param("E_fat"))
-  }
+  fat_change_g <- net / get_param("E_fat")
 
   #2) convert grams to kilograms
 

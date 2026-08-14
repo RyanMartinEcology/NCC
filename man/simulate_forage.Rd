@@ -4,7 +4,17 @@
 \alias{simulate_forage}
 \title{Simulate one foraging step for a single agent}
 \usage{
-simulate_forage(x, y, vals, geom, is_day, consumed_today, rep_status)
+simulate_forage(
+  x,
+  y,
+  vals,
+  geom,
+  is_day,
+  rep_status,
+  bm,
+  forage_hours,
+  cell_area
+)
 }
 \arguments{
 \item{x}{Numeric. Agent's current x coordinate.}
@@ -19,15 +29,17 @@ for \code{cellFromXY} (the day-start forage layer). Not modified.}
 
 \item{is_day}{Logical. Whether the current hour is daylight.}
 
-\item{consumed_today}{Numeric. Dry matter (g) the agent has already consumed
-earlier in the current day; used to hold the day's intake under
-\code{max_daily_intake}, and ignored at night.}
-
 \item{rep_status}{Numeric. The agent's reproductive status (1 = lactating,
 0 = not). Passed through to \code{calc_dmi} to select the agent's
-\code{half_saturation} slot, and used here to select its
-\code{max_daily_intake} slot (both are length-2 vectors indexed by
-\code{rep_status + 1L}).}
+\code{intake_multiplier} slot.}
+
+\item{bm}{Numeric. The agent's current body mass (kg), passed to \code{calc_dmi}.}
+
+\item{forage_hours}{Numeric. Number of foraging (daylight) hours in the current
+day, passed to \code{calc_dmi}.}
+
+\item{cell_area}{Numeric. Area of one raster cell (m^2), passed to
+\code{calc_dmi} for the g/cell to kg/ha conversion.}
 }
 \value{
 A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),

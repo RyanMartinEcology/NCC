@@ -114,6 +114,11 @@ agents_to_tibble <- function(agents_m, times) {
 
 #' Run the NCC Agent-Based Model
 #'
+#' @param year Numeric. Calendar year the simulated season runs in, defaulting to 2024.
+#'   Sets \code{t_start} and \code{t_end} from the stored season month-day bounds and
+#'   refreshes the daylight schedule, then selects the \code{forage_reference} layers whose
+#'   \code{terra::time()} dates match the simulated days. Point this at the year of the
+#'   forage rasters being supplied.
 #' @param forage_regrowth Logical. If \code{TRUE} (the default), depleted forage
 #'   recovers each day through the geometric regrowth function
 #'   (\code{update_forage}); if \code{FALSE}, geometric regrowth is disabled so
@@ -127,7 +132,15 @@ agents_to_tibble <- function(agents_m, times) {
 #'   \code{FALSE}.
 #'
 #' @export
-ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRUE, verbose = TRUE, report_time = FALSE) {
+ncc_abm <- function(forage_reference, dem, canopy, escape, year = 2024, forage_regrowth = TRUE, verbose = TRUE, report_time = FALSE) {
+
+  # ------------------------------------------------------------------------------------------------------------------------
+  # point the clock at the requested year
+  # ------------------------------------------------------------------------------------------------------------------------
+
+  #1) rebuild t_start / t_end and the daylight vectors together, before anything reads them
+
+  .set_season(year)
 
   # ------------------------------------------------------------------------------------------------------------------------
   # resolve time parameters
@@ -165,11 +178,23 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRU
 
   if (verbose) message("1) Importing and checking rasters")
 
-  #1) check forage_reference has one layer per simulation day
+  #1) select the forage_reference layers whose dates match the simulated days. matching on date
+  #   rather than counting layers lets a raster covering a longer window serve a shorter season,
+  #   and catches a raster that is misaligned rather than merely the wrong length
+
+  reference_time <- terra::time(forage_reference)
 
   stopifnot(
-    "forage_reference must have one layer per simulation day" = terra::nlyr(forage_reference) == length(dates)
+    "forage_reference must carry layer dates (terra::time)" = !anyNA(reference_time)
   )
+
+  layer_idx <- match(dates, as.Date(reference_time))
+
+  stopifnot(
+    "forage_reference has no layer for one or more simulated days" = !anyNA(layer_idx)
+  )
+
+  forage_reference <- forage_reference[[layer_idx]]
 
   #2) check canopy, escape, and dem each have a single layer
 
@@ -248,6 +273,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRU
   escape_vals <- terra::values(escape, mat = FALSE)
   canopy_vals <- terra::values(canopy, mat = FALSE)
   geom_ref <- forage_reference[[1]]
+  cell_area <- prod(terra::res(forage_reference))
   move_ext <- as.vector(terra::ext(forage_reference))
   move_t_delta <- get_param("t_delta")
   move_n_candidates <- get_param("n_candidates")
@@ -348,6 +374,14 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRU
     potential_d <- terra::values(forage_reference[[d]], mat = FALSE)
     vals <- potential_d - deficit
 
+    # the day's foraging-hour count, used by calc_dmi to spread the daily intake response across
+    #   the hours an agent can eat. counting the daylight steps rather than using the continuous
+    #   day_length keeps the realized daily total equal to the curve. a day with no daylight steps
+    #   never reaches calc_dmi, since simulate_forage returns zero at night before it is called
+
+    day_steps <- ((d - 1) * 24 + 1):min(d * 24, length(times))
+    forage_hours_d <- sum(is_daylight[day_steps])
+
     #6) prebuild the day and night movement-data lists once for the day
     # movement sees day-start realized forage: the lists capture vals here, and the
     #   hour loop's in-place depletion of vals copy-on-writes, so the captured forage
@@ -392,7 +426,9 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRU
           logical(1)
         )
       )
-      living <- sample(living)
+      # permute the vector's own elements: sample(x) on a length-1 x would draw from seq_len(x)
+      #   instead of returning x, resurrecting dead agents whenever one animal is the sole survivor
+      living <- living[sample.int(length(living))]
 
       #11) carry status forward for living agents
       # at the first hour of a day, status comes from the previous day's last row
@@ -437,21 +473,20 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRU
       }
 
       #14) forage phase — every living agent forages in shuffled order, depleting vals
-      # consumed_today is the agent's cumulative intake earlier in the day, passed so
-      #   simulate_forage can hold the day's intake under max_daily_intake
-
-      day_start <- (d - 1) * 24 + 1
+      # the intake response is a daily curve in the agent's current body mass, so each agent
+      #   passes its own bm along with the day's foraging-hour count and the cell area
 
       for (i in living) {
-        consumed_today <- if (h > 1) sum(agents[[i]][day_start:(t - 1), forage_idx[1]], na.rm = TRUE) else 0
         fg <- simulate_forage(
           agents[[i]][t, x_idx],
           agents[[i]][t, y_idx],
           vals,
           geom_ref,
           is_day,
-          consumed_today,
-          agent_params$rep_status[i]
+          agent_params$rep_status[i],
+          agents[[i]][t, bm_idx],
+          forage_hours_d,
+          cell_area
         )
         agents[[i]][t, forage_idx] <- c(fg$forage_consumed, fg$energy_i)
         if (!is.na(fg$cell)) vals[fg$cell] <- vals[fg$cell] - fg$forage_consumed

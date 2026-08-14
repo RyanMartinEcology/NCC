@@ -13,9 +13,9 @@ calc_fat_change(net)
 Numeric. Daily fat-mass change (kg).
 }
 \description{
-Converts the day's net energy balance into a change in fat mass.
-A surplus is deposited at the fat deposition efficiency; a deficit is covered
-by mobilizing fat at the fat catabolism efficiency. Operates on a scalar; the
-caller writes the returned value to the agent's row.
+Converts the day's net energy balance into a change in fat mass at
+the energy density of fat (\code{E_fat}), with no conversion loss in either
+direction: a surplus deposits and a deficit mobilizes at the same rate.
+Operates on a scalar; the caller writes the returned value to the agent's row.
 }
 \keyword{internal}

@@ -2,24 +2,30 @@
 % Please edit documentation in R/plot_functions.R
 \name{plot_abm}
 \alias{plot_abm}
-\title{Plot season-long trajectories and tracks from an NCC run}
+\title{Plot season-long trajectories and forage utilization from an NCC run}
 \usage{
 plot_abm(result, forage_reference)
 }
 \arguments{
 \item{result}{A list returned by \code{ncc_abm}.}
 
-\item{forage_reference}{The forage SpatRaster passed to \code{ncc_abm}; its
-first layer is used as the backdrop for the movement-tracks panel.}
+\item{forage_reference}{The forage SpatRaster passed to \code{ncc_abm}; supplies
+the grid geometry and the per-cell peak potential biomass used as the
+utilization denominator.}
 }
 \value{
 A named list of ggplot objects: \code{condition}, \code{net_energy},
-\code{expenditure}, \code{survival}, and \code{tracks}.
+\code{expenditure}, \code{survival}, and \code{utilization}.
 }
 \description{
 Visual companion to \code{summary_abm}: individual daily
-trajectories of body condition and net energy, a survival curve, and
-hourly movement tracks over the forage landscape. Trajectory lines are
-colored by reproductive status; dead individuals are retained and their
-lines simply end at death.
+trajectories of body condition and net energy, a survival curve, and a map of
+per-cell forage utilization. Trajectory lines are colored by reproductive
+status; dead individuals are retained and their lines simply end at death.
+
+Utilization is this run's season-total consumption in each cell divided by that
+cell's peak daily potential biomass, matching the production-run figures. Values
+above 1 are possible, because a cell can be grazed on many days while the
+denominator is a single day's peak. Cells outside the study area are left
+undrawn; in-study cells that were never grazed are zero rather than missing.
 }

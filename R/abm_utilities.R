@@ -460,21 +460,21 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
 #' @param geom A single-layer \code{terra::SpatRaster} supplying the grid geometry
 #'   for \code{cellFromXY} (the day-start forage layer). Not modified.
 #' @param is_day Logical. Whether the current hour is daylight.
-#' @param consumed_today Numeric. Dry matter (g) the agent has already consumed
-#'   earlier in the current day; used to hold the day's intake under
-#'   \code{max_daily_intake}, and ignored at night.
 #' @param rep_status Numeric. The agent's reproductive status (1 = lactating,
 #'   0 = not). Passed through to \code{calc_dmi} to select the agent's
-#'   \code{half_saturation} slot, and used here to select its
-#'   \code{max_daily_intake} slot (both are length-2 vectors indexed by
-#'   \code{rep_status + 1L}).
+#'   \code{intake_multiplier} slot.
+#' @param bm Numeric. The agent's current body mass (kg), passed to \code{calc_dmi}.
+#' @param forage_hours Numeric. Number of foraging (daylight) hours in the current
+#'   day, passed to \code{calc_dmi}.
+#' @param cell_area Numeric. Area of one raster cell (m^2), passed to
+#'   \code{calc_dmi} for the g/cell to kg/ha conversion.
 #'
 #' @return A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),
 #'   and \code{cell} (the depleted cell index, or NA at night).
 #'
 #' @importFrom terra cellFromXY
 #' @keywords internal
-simulate_forage <- function(x, y, vals, geom, is_day, consumed_today, rep_status) {
+simulate_forage <- function(x, y, vals, geom, is_day, rep_status, bm, forage_hours, cell_area) {
 
   # ----------------------------------------------------------------------------------------------------------------------
   # night gate
@@ -499,18 +499,10 @@ simulate_forage <- function(x, y, vals, geom, is_day, consumed_today, rep_status
   # compute intake and energy
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) consumed dry matter intake, floored at available biomass inside calc_dmi; the agent's
-  #   reproductive status selects its half_saturation slot
+  #1) consumed dry matter intake, floored at available biomass inside calc_dmi. the agent's
+  #   reproductive status selects its intake_multiplier slot
 
-  consumed <- calc_dmi(density, rep_status)
-
-  #2) cap the day's cumulative intake at max_daily_intake; the agent's reproductive status selects
-  #   its cap slot, and an NA in that slot leaves intake uncapped
-
-  cap <- get_param("max_daily_intake")[[rep_status + 1L]]
-  if (!is.na(cap)) {
-    consumed <- min(consumed, max(0, cap - consumed_today))
-  }
+  consumed <- calc_dmi(density, rep_status, bm, forage_hours, cell_area)
 
   # ----------------------------------------------------------------------------------------------------------------------
   # return intake, energy, and the cell for the caller to deplete
