@@ -245,13 +245,13 @@
   #2) multiplier applied to the intake response, as a named length-2 vector indexed by rep_status
   #   (nonrepro = non-lactating, repro = lactating). this carries the reproductive-state difference
   #   in intake now that the daily cap is gone. the nonrepro slot is 1, so that class takes the
-  #   response as published; the repro slot carries a 1.45x lactation allowance, raising the
-  #   reproductive asymptote at bm = 56.91 kg from 1728 to 2506 g/day against the 3050 the retired
+  #   response as published; the repro slot carries a 1.5x lactation allowance, raising the
+  #   reproductive asymptote at bm = 56.91 kg from 1728 to 2592 g/day against the 3050 the retired
   #   max_daily_intake enforced. tuned against the capture IFBF targets, not independently sourced
 
   .ncc_env$intake_multiplier <- c(
     nonrepro = 1,
-    repro = 1.45
+    repro = 1.5
   )
   attr(.ncc_env$intake_multiplier, 'unit') <- 'multiplier'
   attr(.ncc_env$intake_multiplier, 'source') <- NA
