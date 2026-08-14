@@ -1,6 +1,6 @@
 Package: NCC
 Title: A package with tools to run an agent-based model of nutritional carrying capacity for large herbivores.
-Version: 1.1.1
+Version: 1.1.2
 Authors@R: person("Ryan Martin", email = "ryanmartin@uidaho.edu", role = c("aut", "cre"))
 Description: Simulates nutritional carrying capacity for bighorn sheep in the Teton range using agent-based modeling.
 License: MIT
