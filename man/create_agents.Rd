@@ -4,12 +4,13 @@
 \alias{create_agents}
 \title{Create and initialize agent population}
 \usage{
-create_agents(start_range)
+create_agents(forage_reference)
 }
 \arguments{
-\item{start_range}{An sf polygon or \code{terra::SpatVector} delimiting the
-population range (the 95\\% KDE home range) within which agent starting
-locations are drawn uniformly at random.}
+\item{forage_reference}{A \code{terra::SpatRaster} of daily potential forage
+biomass. Agent starting locations are drawn uniformly at random from the
+non-NA cells of its first layer, so agents may begin anywhere the forage
+surface carries data.}
 }
 \value{
 A named list with elements:

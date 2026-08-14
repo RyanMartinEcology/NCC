@@ -57,6 +57,14 @@
 
   .ncc_env$n_agents <- 50 # denotes current number of agents, can be updated within the model
 
+  #3) movement-only steps each agent takes before the simulation proper begins, so that starting
+  #   positions reflect the agents' own movement models rather than where they were dropped
+
+  .ncc_env$burn_in <- 1000L
+  attr(.ncc_env$burn_in, 'unit') <- 'steps'
+  attr(.ncc_env$burn_in, 'source') <- NA
+  attr(.ncc_env$burn_in, 'full_name') <- 'Number of burn-in movement steps drawn before the simulation starts'
+
   # -----------------------------------------------------------------------------------------------------
   # time parameters
   # -----------------------------------------------------------------------------------------------------

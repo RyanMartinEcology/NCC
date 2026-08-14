@@ -27,8 +27,10 @@ hand-rolled and assumes the twelve-term day/night structure enforced by
 }
 \value{
 A named numeric vector with elements \code{x}, \code{y},
-\code{step_length}, \code{turn_angle}, \code{heading}; or \code{NULL} if more
-than half the candidate endpoints fall outside the raster extent.
+\code{step_length}, \code{turn_angle}, \code{heading}; or \code{NULL} if the
+step cannot be drawn, either because more than half the candidate endpoints
+fall outside the raster extent or because no candidate carries positive
+selection weight (all endpoints on no-data cells).
 }
 \description{
 Draws one movement step for a living agent from its individual

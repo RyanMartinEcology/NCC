@@ -58,9 +58,10 @@ draw_movement_params <- function() {
 #'   status, initial body condition, movement parameters) are stored in a
 #'   separate \code{agent_params} dataframe. Both are returned as a named list.
 #'
-#' @param start_range An sf polygon or \code{terra::SpatVector} delimiting the
-#'   population range (the 95\% KDE home range) within which agent starting
-#'   locations are drawn uniformly at random.
+#' @param forage_reference A \code{terra::SpatRaster} of daily potential forage
+#'   biomass. Agent starting locations are drawn uniformly at random from the
+#'   non-NA cells of its first layer, so agents may begin anywhere the forage
+#'   surface carries data.
 #'
 #' @return A named list with elements:
 #'   \describe{
@@ -73,7 +74,7 @@ draw_movement_params <- function() {
 #'
 #' @importFrom stats rnorm runif
 #' @keywords internal
-create_agents <- function(start_range) {
+create_agents <- function(forage_reference) {
 
   # ----------------------------------------------------------------------------------------------------------------------
   # set up dimensions, time axis, and identifiers
@@ -118,27 +119,29 @@ create_agents <- function(start_range) {
   )
 
   # ----------------------------------------------------------------------------------------------------------------------
-  # place agents within the starting range
+  # place agents on the forage surface
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) accept the starting range as an sf polygon or a SpatVector (the 95% KDE population home range)
+  #1) the cells eligible to hold an agent are the non-NA cells of the first forage layer; terra::cells
+  #   returns non-NA cell numbers only, and the NA mask is taken to be constant across the daily layers
 
-  if (inherits(start_range, "sf")) start_range <- terra::vect(start_range)
+  valid_cells <- terra::cells(forage_reference[[1]])
 
-  #2) draw one uniform-random location per agent from anywhere inside the range polygon(s); random
-  #   points are area-weighted across the disjoint sub-ranges, with no cell or elevation constraint
+  stopifnot("forage_reference has no non-NA cells to place agents in" = length(valid_cells) > 0)
 
-  start_pts <- terra::spatSample(
-    start_range,
+  #2) draw one cell per agent, uniformly and with replacement, so every cell carrying forage data is
+  #   equally likely regardless of biomass, distance to escape terrain, or membership in the herd's
+  #   observed home range
+
+  start_cells <- sample(
+    valid_cells,
     size = n,
-    method = "random"
+    replace = TRUE
   )
 
-  stopifnot("spatSample returned fewer points than agents" = nrow(start_pts) >= n)
+  #3) pull the coordinates (cell centers, exactly n, in the raster's CRS)
 
-  #3) pull the coordinates (exactly n, in the range's CRS)
-
-  start_xy <- terra::crds(start_pts)[seq_len(n), , drop = FALSE]
+  start_xy <- terra::xyFromCell(forage_reference, start_cells)
   x_init <- start_xy[, 1]
   y_init <- start_xy[, 2]
 

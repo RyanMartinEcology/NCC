@@ -114,9 +114,6 @@ agents_to_tibble <- function(agents_m, times) {
 
 #' Run the NCC Agent-Based Model
 #'
-#' @param start_range An sf polygon or \code{terra::SpatVector} delimiting the
-#'   population range (the 95\% KDE home range) within which agent starting
-#'   locations are drawn uniformly at random.
 #' @param forage_regrowth Logical. If \code{TRUE} (the default), depleted forage
 #'   recovers each day through the geometric regrowth function
 #'   (\code{update_forage}); if \code{FALSE}, geometric regrowth is disabled so
@@ -130,7 +127,7 @@ agents_to_tibble <- function(agents_m, times) {
 #'   \code{FALSE}.
 #'
 #' @export
-ncc_abm <- function(forage_reference, dem, canopy, escape, start_range, forage_regrowth = TRUE, verbose = TRUE, report_time = FALSE) {
+ncc_abm <- function(forage_reference, dem, canopy, escape, forage_regrowth = TRUE, verbose = TRUE, report_time = FALSE) {
 
   # ------------------------------------------------------------------------------------------------------------------------
   # resolve time parameters
@@ -219,7 +216,7 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, start_range, forage_r
 
   #1) initialize agents and fixed individual parameters
 
-  init <- create_agents(start_range)
+  init <- create_agents(forage_reference)
   agents <- init$agents
   agent_params <- init$agent_params
 
@@ -275,6 +272,65 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, start_range, forage_r
     c("energy_bmr", "energy_hif", "energy_loc", "energy_rep", "daily_intake", "energy_net", "fat_change"),
     .agent_cols
   )
+
+  # ------------------------------------------------------------------------------------------------------------------------
+  # burn-in
+  # ------------------------------------------------------------------------------------------------------------------------
+
+  #1) the burn-in movement data: day 1 potential biomass, held frozen for every burn-in step, with
+  #   tod fixed at day. no grazing has occurred yet, so potential and realized biomass are identical
+
+  n_burn_in <- get_param("burn_in")
+
+  if (verbose) message("   Burn-in: ", n_burn_in, " movement steps per agent")
+
+  move_burn <- list(
+    geom = geom_ref,
+    forage = terra::values(forage_reference[[1]], mat = FALSE),
+    escape = escape_vals,
+    canopy = canopy_vals,
+    tod = 0,
+    ext = move_ext,
+    t_delta = move_t_delta,
+    n_candidates = move_n_candidates
+  )
+
+  #2) walk every agent forward n_burn_in steps under its own iSSF and overwrite its first-row
+  #   position and heading with the endpoint. nothing else is updated — no foraging, no depletion,
+  #   no energetics — and the intermediate path is discarded. simulate_burn_in advances all agents
+  #   together one step at a time, applying the same hold-position guards as the hour loop
+
+  if (n_burn_in > 0) {
+
+    burn_time <- system.time(
+      burn_end <- simulate_burn_in(
+        x0 = vapply(agents, function(a) a[1, x_idx], numeric(1)),
+        y0 = vapply(agents, function(a) a[1, y_idx], numeric(1)),
+        heading0 = vapply(agents, function(a) a[1, heading_idx], numeric(1)),
+        issf = agent_params$issf,
+        move = move_burn,
+        n_steps = n_burn_in
+      )
+    )
+
+    for (i in seq_along(agents)) {
+      agents[[i]][1, c(x_idx, y_idx, heading_idx)] <- burn_end[i, ]
+    }
+
+    #3) report the burn-in's own elapsed time when report_time is on, so its cost is measured
+    #   directly rather than inferred by differencing two whole-run times
+
+    if (report_time) {
+      message(
+        "Burn-in time: ", round(burn_time[["elapsed"]], 2), " sec  (",
+        n_burn_in, " steps x ", length(agents), " agents)"
+      )
+    }
+  }
+
+  # ------------------------------------------------------------------------------------------------------------------------
+  # simulate daily and hourly dynamics, continued
+  # ------------------------------------------------------------------------------------------------------------------------
 
   #3) loop over each simulation day
 
