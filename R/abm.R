@@ -279,6 +279,53 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, year = 2024, forage_r
   move_n_candidates <- get_param("n_candidates")
   validate_move_coefs(agent_params$issf[[1]]$coefficients)
 
+  # per-agent movement parameters lifted into vectors once, mirroring simulate_burn_in, with the
+  #   night coefficient offsets folded into a second parameter set so the hour loop just picks day
+  #   or night. consumed by simulate_move_step_vec in the vectorized move phase below
+  vec_coef_names <- c(
+    "sl_",
+    "log(sl_)",
+    "cos(ta_)",
+    "forage_biomass_end",
+    "escape_terrain_end",
+    "canopy_cover_end",
+    "sl_:tod_end_night_end",
+    "log(sl_):tod_end_night_end",
+    "cos(ta_):tod_end_night_end",
+    "forage_biomass_end:tod_end_night_end",
+    "escape_terrain_end:tod_end_night_end",
+    "canopy_cover_end:tod_end_night_end"
+  )
+  vec_coef <- t(vapply(agent_params$issf, function(m) m$coefficients[vec_coef_names], numeric(12L)))
+  colnames(vec_coef) <- vec_coef_names
+
+  prm_day <- list(
+    shape = vapply(agent_params$issf, function(m) m$sl_$params$shape, numeric(1)),
+    scale = vapply(agent_params$issf, function(m) m$sl_$params$scale, numeric(1)),
+    kappa = vapply(agent_params$issf, function(m) m$ta_$params$kappa, numeric(1)),
+    mu = lapply(agent_params$issf, function(m) m$ta_$params$mu),
+    b_sl = vec_coef[, "sl_"],
+    b_lsl = vec_coef[, "log(sl_)"],
+    b_cta = vec_coef[, "cos(ta_)"],
+    b_fo = vec_coef[, "forage_biomass_end"],
+    b_es = vec_coef[, "escape_terrain_end"],
+    b_ca = vec_coef[, "canopy_cover_end"]
+  )
+  prm_night <- prm_day
+  prm_night$b_sl <- prm_day$b_sl + vec_coef[, "sl_:tod_end_night_end"]
+  prm_night$b_lsl <- prm_day$b_lsl + vec_coef[, "log(sl_):tod_end_night_end"]
+  prm_night$b_cta <- prm_day$b_cta + vec_coef[, "cos(ta_):tod_end_night_end"]
+  prm_night$b_fo <- prm_day$b_fo + vec_coef[, "forage_biomass_end:tod_end_night_end"]
+  prm_night$b_es <- prm_day$b_es + vec_coef[, "escape_terrain_end:tod_end_night_end"]
+  prm_night$b_ca <- prm_day$b_ca + vec_coef[, "canopy_cover_end:tod_end_night_end"]
+
+  # intake parameters hoisted once for the vectorized forage phase. the multiplier is kept as the
+  #   full length-2 vector and indexed per agent with [ rather than [[
+  fg_intake_max <- get_param("intake_max")
+  fg_intake_decay <- get_param("intake_decay")
+  fg_intake_multiplier <- get_param("intake_multiplier")
+  fg_energy_factor <- get_param("DE") * get_param("DE_to_ME_conversion_factor")
+
   #2) column indices into the agent matrices, resolved once. integer indexing drops the per-write
   #   column-name lookup in the hour loop and removes any chance of a name-subscript error
   status_idx <- match("status", .agent_cols)
@@ -358,20 +405,34 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, year = 2024, forage_r
   # simulate daily and hourly dynamics, continued
   # ------------------------------------------------------------------------------------------------------------------------
 
-  #3) loop over each simulation day
+  #3) persistent position state: every agent's current x, y, and heading held as plain vectors so
+  #   the hour loop reads and advances positions without per-agent matrix lookups. initialized from
+  #   the first row (which the burn-in has already overwritten); the agent matrices still receive
+  #   every hourly write as the permanent record. dead agents' entries go stale and are never read
+
+  pos_x <- vapply(agents, function(a) a[1, x_idx], numeric(1))
+  pos_y <- vapply(agents, function(a) a[1, y_idx], numeric(1))
+  pos_h <- vapply(agents, function(a) a[1, heading_idx], numeric(1))
+
+  #4) day 1's potential biomass, extracted once here; each subsequent day's vector is carried over
+  #   from the end-of-day deficit update below, so every layer is extracted exactly once per run
+
+  potential_d <- terra::values(forage_reference[[1]], mat = FALSE)
+
+  #5) loop over each simulation day
 
   for (d in seq_along(dates)) {
 
-    #4) announce the current day
+    #6) announce the current day
 
     if (verbose && (d - 1) %% 7 == 0) message("Day ", d, " of ", length(dates), ": ", dates[d])
 
-    #5) build this day's realized biomass: potential minus the carried deficit
+    #7) build this day's realized biomass: potential minus the carried deficit
     # forage_reference holds potential biomass; realized is potential_d - deficit.
     #   vals is the day-start realized biomass and depletes within the day as agents
-    #   forage
+    #   forage. potential_d was extracted at loop entry (day 1) or carried from the
+    #   previous day's deficit update
 
-    potential_d <- terra::values(forage_reference[[d]], mat = FALSE)
     vals <- potential_d - deficit
 
     # the day's foraging-hour count, used by calc_dmi to spread the daily intake response across
@@ -401,6 +462,22 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, year = 2024, forage_r
     move_night <- move_day
     move_night$tod <- 1
 
+    # the day's living set and body masses, computed once: status and body mass change only at day
+    #   boundaries (the survival check and mass propagation both run in the end-of-day block), so
+    #   scanning every agent every hour rediscovers the same answer 24 times. day 1 reads row 1;
+    #   later days read the previous day's last row, where the survival check was recorded
+
+    day_status_row <- if (d == 1) 1L else (d - 1L) * 24L
+    day_living <- which(
+      vapply(
+        agents,
+        function(a) a[day_status_row, status_idx] == .status_alive,
+        logical(1)
+      )
+    )
+    day_bm_row <- (d - 1L) * 24L + 1L
+    bm_day <- vapply(agents, function(a) a[day_bm_row, bm_idx], numeric(1))
+
     #7) loop over each hour within the day
 
     for (h in 1:24) {
@@ -417,18 +494,11 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, year = 2024, forage_r
       is_day <- is_daylight[t]
       move_t <- if (is_day) move_day else move_night
 
-      #10) filter to living agents and shuffle their processing order
-
-      living <- which(
-        vapply(
-          agents,
-          function(a) a[t - 1, status_idx] == .status_alive,
-          logical(1)
-        )
-      )
+      #10) shuffle the day's living set into this hour's processing order
       # permute the vector's own elements: sample(x) on a length-1 x would draw from seq_len(x)
       #   instead of returning x, resurrecting dead agents whenever one animal is the sole survivor
-      living <- living[sample.int(length(living))]
+
+      living <- day_living[sample.int(length(day_living))]
 
       #11) carry status forward for living agents
       # at the first hour of a day, status comes from the previous day's last row
@@ -449,47 +519,100 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, year = 2024, forage_r
         }
       }
 
-      #13) move phase — every living agent moves
+      #13) move phase — all living agents advance in one vectorized step. hold-position guards are
+      #   applied inside simulate_move_step_vec, which returns held agents with their prior
+      #   position and heading and a zero-length step. current positions come from the persistent
+      #   pos_ vectors; the agent matrices receive the same writes as before as the record
 
-      for (i in living) {
-        mv <- simulate_move(
-          agents[[i]][t - 1, x_idx],
-          agents[[i]][t - 1, y_idx],
-          agents[[i]][t - 1, heading_idx],
-          agent_params$issf[[i]],
-          move_t,
-          time_t
+      if (length(living) > 0) {
+
+        prm_t <- if (is_day) prm_day else prm_night
+        prm_sub <- list(
+          shape = prm_t$shape[living],
+          scale = prm_t$scale[living],
+          kappa = prm_t$kappa[living],
+          mu = prm_t$mu[living],
+          b_sl = prm_t$b_sl[living],
+          b_lsl = prm_t$b_lsl[living],
+          b_cta = prm_t$b_cta[living],
+          b_fo = prm_t$b_fo[living],
+          b_es = prm_t$b_es[living],
+          b_ca = prm_t$b_ca[living]
         )
-        if (is.null(mv)) {
-          # cornered agent: simulate_move returns NULL when more than half its candidate
-          #   steps leave the extent, so it stays put this hour — carry position and
-          #   heading forward with a zero-length step
-          agents[[i]][t, c(x_idx, y_idx, heading_idx)] <- agents[[i]][t - 1, c(x_idx, y_idx, heading_idx)]
-          agents[[i]][t, step_length_idx] <- 0
-          agents[[i]][t, turn_angle_idx] <- 0
-        } else {
-          agents[[i]][t, move_idx] <- mv[move_names]
+
+        mv_mat <- simulate_move_step_vec(
+          pos_x[living],
+          pos_y[living],
+          pos_h[living],
+          prm_sub,
+          move_t
+        )
+
+        pos_x[living] <- mv_mat[, "x"]
+        pos_y[living] <- mv_mat[, "y"]
+        pos_h[living] <- mv_mat[, "heading"]
+
+        for (k in seq_along(living)) {
+          agents[[living[k]]][t, move_idx] <- mv_mat[k, move_names]
         }
       }
 
-      #14) forage phase — every living agent forages in shuffled order, depleting vals
-      # the intake response is a daily curve in the agent's current body mass, so each agent
-      #   passes its own bm along with the day's foraging-hour count and the cell area
+      #14) forage phase — every living agent forages in shuffled order, depleting vals. batched:
+      #   night writes zeros; day batches the cell lookup and the intake curve across all living
+      #   agents, reading positions straight from the move step's output. foraging consumes no RNG
+      #   and the arithmetic is elementwise identical to calc_dmi (vector [ for the multiplier,
+      #   pmin for the biomass floor), so uncontested cells reproduce the per-agent loop
+      #   bit-for-bit. agents sharing a cell this hour see sequential depletion, so those are
+      #   recomputed one at a time in the same shuffled order
 
-      for (i in living) {
-        fg <- simulate_forage(
-          agents[[i]][t, x_idx],
-          agents[[i]][t, y_idx],
-          vals,
-          geom_ref,
-          is_day,
-          agent_params$rep_status[i],
-          agents[[i]][t, bm_idx],
-          forage_hours_d,
-          cell_area
-        )
-        agents[[i]][t, forage_idx] <- c(fg$forage_consumed, fg$energy_i)
-        if (!is.na(fg$cell)) vals[fg$cell] <- vals[fg$cell] - fg$forage_consumed
+      if (!is_day) {
+
+        for (i in living) {
+          agents[[i]][t, forage_idx] <- c(0, 0)
+        }
+
+      } else if (length(living) > 0) {
+
+        fmult <- fg_intake_multiplier[agent_params$rep_status[living] + 1L]
+        fbm <- bm_day[living]
+
+        fcells <- terra::cellFromXY(geom_ref, cbind(pos_x[living], pos_y[living]))
+        fdens <- vals[fcells]
+
+        fdaily <- fg_intake_max * fbm^0.75 *
+          (1 - exp(-(fdens / (cell_area / 10)) / fg_intake_decay)) *
+          fmult
+        fconsumed <- pmin(fdaily / forage_hours_d, fdens)
+
+        contested <- duplicated(fcells) | duplicated(fcells, fromLast = TRUE)
+
+        if (any(contested)) {
+
+          # sequential recompute for co-grazing agents, in the shuffled living order the loop used
+          for (k in which(contested)) {
+            if (is.na(fcells[k])) next
+            d_k <- vals[fcells[k]]
+            daily_k <- fg_intake_max * fbm[k]^0.75 *
+              (1 - exp(-(d_k / (cell_area / 10)) / fg_intake_decay)) *
+              fmult[k]
+            c_k <- min(daily_k / forage_hours_d, d_k)
+            fconsumed[k] <- c_k
+            vals[fcells[k]] <- d_k - c_k
+          }
+
+          unc <- which(!contested & !is.na(fcells))
+          vals[fcells[unc]] <- vals[fcells[unc]] - fconsumed[unc]
+
+        } else {
+          ok <- which(!is.na(fcells))
+          vals[fcells[ok]] <- vals[fcells[ok]] - fconsumed[ok]
+        }
+
+        fenergy <- fconsumed * fg_energy_factor
+
+        for (k in seq_along(living)) {
+          agents[[living[k]]][t, forage_idx] <- c(fconsumed[k], fenergy[k])
+        }
       }
     }
 
@@ -503,6 +626,9 @@ ncc_abm <- function(forage_reference, dem, canopy, escape, year = 2024, forage_r
       deficit <- deficit + ((potential_d - deficit) - vals)
       potential_next <- terra::values(forage_reference[[d + 1]], mat = FALSE)
       deficit <- update_forage(deficit, potential_next, regrowth = forage_regrowth)
+      # carry tomorrow's potential forward as the next iteration's potential_d, so each layer is
+      #   extracted exactly once per run instead of twice
+      potential_d <- potential_next
     }
 
     #16) end of day: update each living agent's energy balance, mass, and survival
