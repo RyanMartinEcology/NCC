@@ -14,7 +14,7 @@ per-agent parameters, including \code{rep_status}).}
 \value{
 An object of class \code{summary_abm}: a list with elements
 \code{n_agents}, \code{n_survived}, \code{prop_survived}, \code{ifbfat}
-(named vector: all, rep, non_rep; ending body condition over LIVING animals
+(named vector: all, rep, non_rep; ending body condition over living animals
 only, \code{NaN} for a group with no survivors), and \code{net_energy},
 \code{dmi}, \code{distance} (each a months-by-group matrix).
 }

@@ -11,7 +11,7 @@ update_forage(deficit, potential_next, regrowth = TRUE)
 cell number, after the day's consumption has been added.}
 
 \item{potential_next}{Numeric vector of the next day's potential biomass
-(g/cell), indexed by cell number (the next layer of forage_reference).}
+(g/cell), indexed by cell number (the next layer of \code{forage_reference}).}
 
 \item{regrowth}{Logical. If \code{TRUE} (the default), the capped deficit is
 decayed by \code{plant_regrowth_rate} (geometric regrowth); if \code{FALSE},
@@ -25,10 +25,8 @@ Advances the grazing deficit from the end of one day to the start
 of the next. The deficit is the amount (g/cell) by which grazing has pushed
 realized biomass below potential; realized biomass on any day is
 \code{potential - deficit}. The deficit is first capped at the next day's
-potential so that, after decay, realized biomass on the next day cannot fall
-below zero (the deficit can never represent more missing biomass than the
-next day's potential supports). It is then decayed by a fixed fraction
-(\code{plant_regrowth_rate}, a 21-day half-life; Oesterheld 1992), shrinking
+potential so that realized biomass on the next day cannot fall below zero.
+It is then decayed by a fixed fraction (\code{plant_regrowth_rate}), shrinking
 geometrically toward zero. An ungrazed cell has zero deficit and therefore
 sits exactly at potential every day, regardless of the seasonal phenology of
 potential.

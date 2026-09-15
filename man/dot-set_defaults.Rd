@@ -12,11 +12,10 @@ not used.
 }
 \description{
 Writes every default model parameter into \code{.ncc_env}: simulation and
-time settings, the study-area location, the precomputed daylight schedule, the
-energetic and body-condition constants, the pregnancy and lactation schedule, plant
-and calibration parameters, and the population-level movement distribution. Run once
-at load by \code{.onLoad()}; call again by hand to refresh the derived daylight
-vectors after changing any time or location parameter. Most scalars carry
-\code{unit}, \code{source}, and \code{full_name} attributes that document the value.
+time settings, the study-area latitude, the precomputed daylight schedule, the
+energetic and body-condition constants, the lactation schedule, the plant regrowth
+rate, the intake response, and the population-level movement distribution. Run once
+at load by \code{.onLoad()}. Most scalars carry \code{unit}, \code{source}, and
+\code{full_name} attributes that document the value.
 }
 \keyword{internal}

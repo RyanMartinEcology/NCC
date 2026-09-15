@@ -2,7 +2,7 @@
 % Please edit documentation in R/abm_utilities.R
 \name{validate_move_coefs}
 \alias{validate_move_coefs}
-\title{Validate the iSSF coefficient structure for the hand-rolled predictor}
+\title{Validate the iSSF coefficient structure}
 \usage{
 validate_move_coefs(coefs)
 }
@@ -13,14 +13,14 @@ validate_move_coefs(coefs)
 Invisibly \code{TRUE}; called for its side effect (error on mismatch).
 }
 \description{
-\code{simulate_move} computes the selection linear predictor by
-hand (rather than via \code{model.matrix}) and therefore hard-codes the
-model's term structure: six habitat / movement covariates, each with a
-day main effect and a \code{:tod_end_night_end} night offset. This guard
-checks that a fitted/constructed iSSF carries exactly those twelve named
-coefficients and \code{stop()}s otherwise, so a change to the term
-structure fails loudly instead of being silently miscomputed. Coefficient
-\emph{values} are irrelevant here; only the names are checked. The names are
-shared across agents, so the caller validates one agent once per run.
+The movement functions (\code{simulate_move_step_vec} and
+\code{simulate_burn_in}) compute the selection linear predictor by name
+rather than through \code{model.matrix}, so they depend on a fixed term
+structure: six movement and habitat covariates, each with a day main effect
+and a \code{:tod_end_night_end} night offset. This check confirms that an iSSF
+carries exactly those twelve named coefficients and stops the run otherwise,
+so a change to the term structure fails at the start of a run rather than
+being miscomputed. Only the names are checked, not the values. The names are
+shared across agents, so the caller checks one agent once per run.
 }
 \keyword{internal}

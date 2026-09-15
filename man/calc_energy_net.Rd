@@ -13,7 +13,7 @@ calc_energy_net(
 )
 }
 \arguments{
-\item{energy_i_window}{Numeric vector of the day's 24 hourly energy intakes (kJ).}
+\item{energy_i_window}{Numeric vector of the day's hourly energy intakes (kJ).}
 
 \item{energy_bmr}{Numeric. Daily basal metabolic energy expenditure (kJ/day).}
 
@@ -30,7 +30,6 @@ A named numeric vector with elements \code{daily_intake} and
 \description{
 Sums the day's hourly energy intake and subtracts the daily
 expenditure terms (basal metabolism, heat increment of feeding, locomotion,
-lactation) to give net energy balance. Operates on scalars and the day's
-intake vector; the caller writes the returned values to the agent's row.
+lactation) to give net energy balance.
 }
 \keyword{internal}

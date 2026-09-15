@@ -2,10 +2,11 @@
 #'
 #' @description Draws one agent's 15-dimensional movement vector from the
 #'   population-level multivariate normal distribution (\code{mvn_mu},
-#'   \code{mvn_sigma}), exponentiates the three log-scale pooled tentative
-#'   distribution dimensions, and builds a single iSSF model via
-#'   \code{amt::make_issf_model()}. The model carries \code{tod_end_}
-#'   interactions, so day and night are encoded in one model rather than two.
+#'   \code{mvn_sigma}), exponentiates the three log-scale step-length and
+#'   turn-angle distribution parameters, and builds a single iSSF model via
+#'   \code{amt::make_issf_model()}. The model carries the night offsets as
+#'   \code{:tod_end_night_end} interaction coefficients, so day and night are
+#'   encoded in one model rather than two.
 #'
 #' @return A single iSSF model object from \code{amt::make_issf_model()}.
 #'
@@ -18,12 +19,12 @@ draw_movement_params <- function() {
   # draw one movement model from the population MVN
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) population mean vector and covariance
+  #1) the population mean vector and covariance matrix
 
   mu <- get_param("mvn_mu")
   sigma <- get_param("mvn_sigma")
 
-  #2) draw one 15-dimensional movement vector
+  #2) one 15-dimensional draw
 
   draw <- MASS::mvrnorm(
     1,
@@ -31,17 +32,18 @@ draw_movement_params <- function() {
     Sigma = sigma
   )
 
-  #3) exponentiate the three log-scale pooled tentative distribution parameters
+  #3) the gamma step-length shape and scale and the von Mises turn-angle concentration are stored on the log scale,
+  #   so they are exponentiated back to their natural scale
 
   shape <- exp(draw[["log_shape"]])
   scale <- exp(draw[["log_scale"]])
   kappa <- exp(draw[["log_kappa"]])
 
-  #4) the remaining twelve dimensions are the selection coefficients
+  #4) the remaining twelve dimensions are the selection coefficients: six day main effects and six night offsets
 
   coefs <- draw[setdiff(names(draw), c("log_shape", "log_scale", "log_kappa"))]
 
-  #5) build the single iSSF model, carrying day and night via tod_end_ interactions
+  #5) build the single iSSF model from the coefficients and the two movement distributions
 
   amt::make_issf_model(
     coefs = coefs,
@@ -56,7 +58,7 @@ draw_movement_params <- function() {
 #'   sheep agent as a tibble with one row per simulation time step containing
 #'   only time-varying state variables. Fixed individual parameters (reproductive
 #'   status, initial body condition, movement parameters) are stored in a
-#'   separate \code{agent_params} dataframe. Both are returned as a named list.
+#'   separate \code{agent_params} tibble. Both are returned as a named list.
 #'
 #' @param forage_reference A \code{terra::SpatRaster} of daily potential forage
 #'   biomass. Agent starting locations are drawn uniformly at random from the
@@ -69,7 +71,7 @@ draw_movement_params <- function() {
 #'       time-varying state variables.}
 #'     \item{agent_params}{A tibble with one row per agent containing
 #'       fixed individual parameters, including a single iSSF model object
-#'       (\code{issf}) with tod_end_ interactions.}
+#'       (\code{issf}) carrying the day coefficients and night offsets.}
 #'   }
 #'
 #' @importFrom stats rnorm runif
@@ -80,7 +82,8 @@ create_agents <- function(forage_reference) {
   # set up dimensions, time axis, and identifiers
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) agent count, the hourly time sequence, starting body mass, and agent ids
+  #1) the agent count, the hourly time sequence from season start to season end, the starting body mass shared by
+  #   all agents, and the agent ids (BHS_001, BHS_002, ...)
 
   n <- get_param("n_agents")
   t_start <- get_param("t_start")
@@ -98,16 +101,18 @@ create_agents <- function(forage_reference) {
   # draw fixed individual parameters
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) per-agent body condition and reproductive status
+  #1) each agent's starting body fat fraction and reproductive status (1 = lactating, 0 = not), drawn from the
+  #   parameter environment's draw functions
 
   ifbfat <- sapply(seq_len(n), function(i) draw_param("ifbf"))
   rep_status <- sapply(seq_len(n), function(i) draw_param("rep_status"))
 
-  #2) per-agent movement model drawn from the population-level MVN
+  #2) each agent's movement model, drawn from the population-level multivariate normal distribution
 
   issf <- lapply(seq_len(n), function(i) draw_movement_params())
 
-  #3) the fixed-parameter tibble, one row per agent
+  #3) the fixed-parameter tibble, one row per agent. days post partum starts at j_post_partum for lactating agents
+  #   and is NA for the rest
 
   agent_params <- dplyr::tibble(
     id = ids,
@@ -122,16 +127,15 @@ create_agents <- function(forage_reference) {
   # place agents on the forage surface
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) the cells eligible to hold an agent are the non-NA cells of the first forage layer; terra::cells
-  #   returns non-NA cell numbers only, and the NA mask is taken to be constant across the daily layers
+  #1) the cells eligible to hold an agent are the non-NA cells of the first forage layer (terra::cells() returns
+  #   non-NA cell numbers only). the NA mask is taken to be the same in every daily layer
 
   valid_cells <- terra::cells(forage_reference[[1]])
 
   stopifnot("forage_reference has no non-NA cells to place agents in" = length(valid_cells) > 0)
 
-  #2) draw one cell per agent, uniformly and with replacement, so every cell carrying forage data is
-  #   equally likely regardless of biomass, distance to escape terrain, or membership in the herd's
-  #   observed home range
+  #2) one start cell per agent, drawn uniformly and with replacement, so every cell carrying forage data is
+  #   equally likely regardless of its biomass or distance to escape terrain
 
   start_cells <- sample(
     valid_cells,
@@ -139,7 +143,7 @@ create_agents <- function(forage_reference) {
     replace = TRUE
   )
 
-  #3) pull the coordinates (cell centers, exactly n, in the raster's CRS)
+  #3) the start coordinates: the centers of the drawn cells, in the raster's coordinate reference system
 
   start_xy <- terra::xyFromCell(forage_reference, start_cells)
   x_init <- start_xy[, 1]
@@ -149,19 +153,19 @@ create_agents <- function(forage_reference) {
   # build per-agent state tibbles
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) the named list that will hold one state tibble per agent
+  #1) the named list that holds one state tibble per agent
 
   agents <- vector("list", n)
   names(agents) <- ids
 
   for (i in seq_len(n)) {
 
-    #2) the agent's first-row body condition
+    #2) the agent's starting body mass and body fat fraction
 
     bm_i <- bm
     ifbfat_i <- ifbfat[i]
 
-    #3) an all-NA hourly state frame, one row per time step and one column per state variable
+    #3) an all-NA hourly state tibble, one row per time step and one column per state variable
 
     empty_rows <- dplyr::tibble(
       datetime = times,
@@ -187,8 +191,10 @@ create_agents <- function(forage_reference) {
       fat_change = NA_real_
     )
 
-    #4) initialize the first row: status, start position, heading, body state, and the
-    #   first-step energetics (locomotion and intake begin at zero)
+    #4) fill the first row: the agent starts alive at its start cell with a uniformly random heading, a
+    #   zero-length step, and a turn angle of pi / 2; body mass, body fat, lean mass, and fat mass from its
+    #   starting values; basal metabolism, heat increment of feeding, and lactation cost evaluated at those
+    #   values; and locomotion, intake, forage consumed, and fat change at zero
 
     empty_rows$status[1] <- "ALIVE"
     empty_rows$x[1] <- x_init[i]
@@ -223,7 +229,7 @@ create_agents <- function(forage_reference) {
   # return
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) return the agents and their fixed individual parameters
+  #1) the agents and their fixed individual parameters
 
   list(agents = agents, agent_params = agent_params)
 }

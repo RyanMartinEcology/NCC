@@ -18,7 +18,7 @@ Numeric. Lactation energy expenditure (kJ/day).
 }
 \description{
 Returns the daily lactation energy cost as basal metabolic energy
-scaled by the lactation modifier indexed at days post partum. Returns 0 for
+scaled by the lactation modifier at the agent's days post partum. Returns 0 for
 non-reproductive individuals.
 }
 \keyword{internal}

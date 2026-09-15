@@ -15,8 +15,11 @@ simulate_burn_in(x0, y0, heading0, issf, move, n_steps, block = 50L)
 
 \item{issf}{A list of per-agent iSSF model objects from \code{amt::make_issf_model()}.}
 
-\item{move}{The movement data list described in \code{simulate_move}. \code{tod} is constant for
-the whole burn-in.}
+\item{move}{A list of movement data: \code{geom} (a single-layer \code{terra::SpatRaster}
+supplying the grid for \code{cellFromXY}), \code{forage}, \code{escape}, \code{canopy}
+(numeric covariate vectors indexed by cell number), \code{tod} (0 for day, 1 for night;
+constant for the whole burn-in), \code{ext} (the named grid extent, xmin / xmax / ymin /
+ymax), and \code{n_candidates}.}
 
 \item{n_steps}{Integer. Number of burn-in steps taken by each agent.}
 
@@ -26,21 +29,20 @@ the whole burn-in.}
 A numeric matrix with one row per agent and columns \code{x}, \code{y}, \code{heading}.
 }
 \description{
-Walks every agent forward \code{n_steps} movement-only steps under its own iSSF and
-returns only the endpoint. This is a vectorized twin of \code{simulate_move}: it draws the same
-gamma step lengths and von Mises turn angles, scores candidates with the same weight formula,
-and applies the same two hold-position guards, but advances all agents together one step at a
-time rather than running one agent to completion at a time.
+Moves every agent forward \code{n_steps} movement-only steps under its own iSSF and
+returns only the endpoint. Each step draws \code{n_candidates} candidate steps per agent
+(gamma step lengths and von Mises turn angles), scores the candidate endpoints by the habitat
+and movement covariates of the cell they land in, and samples one endpoint per agent with
+probability proportional to its selection weight. An agent holds position for a step when more
+than half of its candidate endpoints fall outside the raster extent or when no candidate
+carries positive weight. All agents advance together one step at a time.
 
 Step lengths and turn angles do not depend on position, so they are drawn ahead of the step
-loop in blocks of \code{block} steps: one \code{rgamma} call covering every agent at once
-(\code{rgamma} recycles shape and scale), and one \code{circular::rvonmises} call per agent
-(which accepts only a scalar kappa). Blocking bounds the pre-draw at
-\code{n * block * n_candidates} doubles per array.
+loop in blocks of \code{block} steps: one \code{rgamma} call covering every agent at once, and
+one \code{circular::rvonmises} call per agent (which accepts only a single kappa). The size of
+each pre-drawn array is \code{n * block * n_candidates}.
 
-No state other than position and heading is touched: no foraging, no depletion, no energetics,
-and the intermediate path is discarded. Because the random numbers are consumed in a different
-order than a per-agent loop would consume them, the result is distributionally identical to
-repeated \code{simulate_move} calls but does not reproduce them at a given seed.
+No state other than position and heading is changed: there is no foraging, no forage
+depletion, and no energetics, and the intermediate path is discarded.
 }
 \keyword{internal}

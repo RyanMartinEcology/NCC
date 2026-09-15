@@ -13,19 +13,28 @@ simulate_move_step_vec(x, y, heading, prm, move)
 
 \item{heading}{Numeric vector of current headings (radians).}
 
-\item{prm}{List of per-agent movement parameters already subset to these agents and with the
-night coefficient offsets already folded in when the hour is night: \code{shape},
-\code{scale}, \code{kappa} (numeric vectors), \code{mu} (list), and the six working
-coefficient vectors \code{b_sl}, \code{b_lsl}, \code{b_cta}, \code{b_fo}, \code{b_es},
-\code{b_ca}.}
+\item{prm}{List of per-agent movement parameters, subset to these agents, with the night
+coefficient offsets already added when the hour is night: \code{shape}, \code{scale},
+\code{kappa} (numeric vectors), \code{mu} (list), and the six selection coefficient vectors
+\code{b_sl}, \code{b_lsl}, \code{b_cta}, \code{b_fo}, \code{b_es}, \code{b_ca}.}
 
-\item{move}{The movement data list described in \code{simulate_move}.}
+\item{move}{A list of movement data: \code{geom} (a single-layer \code{terra::SpatRaster}
+supplying the grid for \code{cellFromXY}), \code{forage}, \code{escape}, \code{canopy}
+(numeric covariate vectors indexed by cell number), \code{ext} (the named grid extent, xmin /
+xmax / ymin / ymax), and \code{n_candidates}.}
 }
 \value{
 A numeric matrix with one row per agent and columns \code{x}, \code{y},
 \code{step_length}, \code{turn_angle}, \code{heading}.
 }
 \description{
-Advance a set of agents one movement step at once
+Draws one movement step for every agent supplied, from each agent's own step-length
+and turn-angle distributions and selection coefficients. For each agent, \code{n_candidates}
+candidate steps are drawn (gamma step lengths and von Mises turn angles), the candidate
+endpoints are scored by the habitat and movement covariates of the cell they land in, and one
+endpoint is sampled with probability proportional to its selection weight. An agent holds
+position, keeping its prior location and heading with a zero-length step, when more than half
+of its candidate endpoints fall outside the raster extent or when no candidate carries positive
+weight (every endpoint on a no-data cell).
 }
 \keyword{internal}

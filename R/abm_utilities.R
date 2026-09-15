@@ -1,14 +1,14 @@
-#' Validate the iSSF coefficient structure for the hand-rolled predictor
+#' Validate the iSSF coefficient structure
 #'
-#' @description \code{simulate_move} computes the selection linear predictor by
-#'   hand (rather than via \code{model.matrix}) and therefore hard-codes the
-#'   model's term structure: six habitat / movement covariates, each with a
-#'   day main effect and a \code{:tod_end_night_end} night offset. This guard
-#'   checks that a fitted/constructed iSSF carries exactly those twelve named
-#'   coefficients and \code{stop()}s otherwise, so a change to the term
-#'   structure fails loudly instead of being silently miscomputed. Coefficient
-#'   \emph{values} are irrelevant here; only the names are checked. The names are
-#'   shared across agents, so the caller validates one agent once per run.
+#' @description The movement functions (\code{simulate_move_step_vec} and
+#'   \code{simulate_burn_in}) compute the selection linear predictor by name
+#'   rather than through \code{model.matrix}, so they depend on a fixed term
+#'   structure: six movement and habitat covariates, each with a day main effect
+#'   and a \code{:tod_end_night_end} night offset. This check confirms that an iSSF
+#'   carries exactly those twelve named coefficients and stops the run otherwise,
+#'   so a change to the term structure fails at the start of a run rather than
+#'   being miscomputed. Only the names are checked, not the values. The names are
+#'   shared across agents, so the caller checks one agent once per run.
 #'
 #' @param coefs The named coefficient vector \code{issf$coefficients}.
 #'
@@ -16,6 +16,14 @@
 #'
 #' @keywords internal
 validate_move_coefs <- function(coefs) {
+
+  # ----------------------------------------------------------------------------------------------------------------------
+  # check the coefficient names
+  # ----------------------------------------------------------------------------------------------------------------------
+
+  #1) the twelve expected names: step length, log step length, cosine of turn angle, forage biomass, distance to
+  #   escape terrain, and canopy cover, each as a day main effect and as a night offset
+
   expected <- c(
     "sl_", "log(sl_)", "cos(ta_)",
     "forage_biomass_end", "escape_terrain_end", "canopy_cover_end",
@@ -23,214 +31,47 @@ validate_move_coefs <- function(coefs) {
     "forage_biomass_end:tod_end_night_end", "escape_terrain_end:tod_end_night_end",
     "canopy_cover_end:tod_end_night_end"
   )
+
+  #2) stop the run if the supplied names are not exactly this set, in any order
+
   if (!setequal(names(coefs), expected)) {
     stop(
-      "simulate_move expects an iSSF with exactly these coefficients:\n  ",
+      "the movement functions expect an iSSF with exactly these coefficients:\n  ",
       paste(expected, collapse = ", "),
-      "\nThe hand-rolled selection predictor must be updated if the term ",
+      "\nThe selection predictor must be updated if the term ",
       "structure changes."
     )
   }
   invisible(TRUE)
 }
 
-#' Simulate one movement step for a single agent
-#'
-#' @description Draws one movement step for a living agent from its individual
-#'   iSSF. This is a stripped, in-memory reimplementation of the continuous-case
-#'   path of \code{amt::redistribution_kernel()}, specialized to this model:
-#'   it draws candidate steps with amt's \code{random_steps_simple}, looks up the
-#'   end-of-step covariates by cell index against precomputed in-memory value
-#'   vectors (no \code{terra::extract} per call), scores them with amt's
-#'   continuous-case weight formula inlined (no movement compensation, since
-#'   \code{landscape = "continuous"}), and samples one endpoint. Step length,
-#'   turn angle, and the updated heading are derived from the drawn endpoint.
-#'
-#'   The candidate draw and the final sample consume the RNG in the same order
-#'   and amount as \code{amt::redistribution_kernel()}, and \code{cellFromXY}
-#'   returns the same nearest cell \code{terra::extract} would, so for a given
-#'   seed the result matches the amt path.
-#'
-#' @param x0 Numeric. Previous-row x coordinate (step start).
-#' @param y0 Numeric. Previous-row y coordinate (step start).
-#' @param heading0 Numeric. Previous-row heading (radians); the turn-angle reference.
-#' @param issf The agent's iSSF model object from \code{amt::make_issf_model()}.
-#' @param move A list of per-hour movement data: \code{geom} (a single-layer
-#'   SpatRaster for \code{cellFromXY} geometry), \code{forage}, \code{escape},
-#'   \code{canopy} (numeric covariate vectors indexed by cell), \code{tod}
-#'   (0 day / 1 night), \code{ext} (named bbox xmin/xmax/ymin/ymax),
-#'   \code{t_delta}, and \code{n_candidates}. The selection predictor is
-#'   hand-rolled and assumes the twelve-term day/night structure enforced by
-#'   \code{validate_move_coefs}.
-#' @param time The current time step (\code{POSIXct}).
-#'
-#' @return A named numeric vector with elements \code{x}, \code{y},
-#'   \code{step_length}, \code{turn_angle}, \code{heading}; or \code{NULL} if the
-#'   step cannot be drawn, either because more than half the candidate endpoints
-#'   fall outside the raster extent or because no candidate carries positive
-#'   selection weight (all endpoints on no-data cells).
-#'
-#' @importFrom amt make_start
-#' @keywords internal
-simulate_move <- function(x0, y0, heading0, issf, move, time) {
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # draw candidate steps
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) tentative start, then draw n_candidates candidates from the agent's pooled
-  #   Gamma / von Mises (amt internal; same RNG draw as redistribution_kernel)
-
-  start <- amt::make_start(
-    c(x0, y0),
-    ta_ = heading0,
-    time = time,
-    dt = move$t_delta
-  )
-
-  xy <- amt:::random_steps_simple(
-    start,
-    sl_model = issf$sl_,
-    ta_model = issf$ta_,
-    n.control = move$n_candidates
-  )
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # outside-extent guard
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) abort if more than half the candidate endpoints spill past the rectangular
-  #   extent (tolerance.outside = 0.5), matching the prior kernel behavior
-
-  ext <- move$ext
-  fraction_outside <- mean(
-    xy$x2_ < ext["xmin"] | xy$x2_ > ext["xmax"] |
-      xy$y2_ < ext["ymin"] | xy$y2_ > ext["ymax"]
-  )
-  if (fraction_outside > 0.5) {
-    warning(
-      round(fraction_outside * 100, 3),
-      "% of candidate steps fall outside the extent (> 50% allowed); step not drawn"
-    )
-    return(NULL)
-  }
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # end-of-step covariates by cell index
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) cell each endpoint falls in (NA off-raster); look up the frozen day-start
-  #   forage and the static escape / canopy as local vectors. tod is constant for
-  #   the hour and enters the predictor below as a whole-call scalar, so it is not
-  #   stored per candidate. off-raster NA covariates become zero-weight below,
-  #   the same as terra::extract + ssf_weights
-
-  cells <- terra::cellFromXY(move$geom, cbind(xy$x2_, xy$y2_))
-  fo <- move$forage[cells]
-  es <- move$escape[cells]
-  ca <- move$canopy[cells]
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # selection weights (hand-rolled linear predictor, continuous case)
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) linear predictor X %*% beta, formed term by term by name rather than via
-  #   model.matrix. day main effects are always present; the six
-  #   :tod_end_night_end offsets are added only at night (tod == 1), which the
-  #   scalar tod lets us branch on instead of carrying a candidate column.
-  #   structure is validated once per run by validate_move_coefs(). continuous
-  #   landscape => no movement-kernel compensation term
-
-  coefs <- issf$coefficients
-  sl <- xy$sl_
-  lsl <- log(sl)
-  cta <- cos(xy$ta_)
-
-  w <- sl  * coefs[["sl_"]] +
-    lsl * coefs[["log(sl_)"]] +
-    cta * coefs[["cos(ta_)"]] +
-    fo  * coefs[["forage_biomass_end"]] +
-    es  * coefs[["escape_terrain_end"]] +
-    ca  * coefs[["canopy_cover_end"]]
-
-  if (move$tod == 1) {
-    w <- w +
-      sl  * coefs[["sl_:tod_end_night_end"]] +
-      lsl * coefs[["log(sl_):tod_end_night_end"]] +
-      cta * coefs[["cos(ta_):tod_end_night_end"]] +
-      fo  * coefs[["forage_biomass_end:tod_end_night_end"]] +
-      es  * coefs[["escape_terrain_end:tod_end_night_end"]] +
-      ca  * coefs[["canopy_cover_end:tod_end_night_end"]]
-  }
-
-  #2) exponentiate and center; non-finite weights (off-raster NA covariates) are
-  #   set to zero so they are never sampled
-
-  w <- exp(w - mean(w[is.finite(w)], na.rm = TRUE))
-  w[!is.finite(w)] <- 0
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # sample one endpoint and derive movement quantities
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) if no candidate carries positive weight, every endpoint fell on a no-data cell inside the
-  #   extent; return NULL so the caller holds the agent in place, exactly as for a cornered agent.
-  #   this fires only where sample.int would otherwise error on an all-zero probability vector, so
-  #   any step that can be drawn is drawn as before
-
-  if (!any(w > 0)) return(NULL)
-
-  #2) sample a single endpoint with probability proportional to the weights
-
-  idx <- sample.int(nrow(xy), size = 1, prob = w)
-  x1 <- xy$x2_[idx]
-  y1 <- xy$y2_[idx]
-
-  #3) step length, absolute bearing, and turn angle relative to the prior heading
-
-  step_length <- sqrt((x1 - x0)^2 + (y1 - y0)^2)
-  bearing <- atan2(y1 - y0, x1 - x0)
-  turn_angle <- atan2(sin(bearing - heading0), cos(bearing - heading0))
-
-  #3) return the step, stripping any names amt attached to the candidate columns so
-  #   the five elements carry exactly the names the caller writes by (x, y,
-  #   step_length, turn_angle, heading)
-
-  c(
-    x = unname(x1),
-    y = unname(y1),
-    step_length = unname(step_length),
-    turn_angle = unname(turn_angle),
-    heading = unname(bearing)
-  )
-}
-
-
 #' Simulate the movement burn-in for all agents at once
 #'
-#' @description Walks every agent forward \code{n_steps} movement-only steps under its own iSSF and
-#'   returns only the endpoint. This is a vectorized twin of \code{simulate_move}: it draws the same
-#'   gamma step lengths and von Mises turn angles, scores candidates with the same weight formula,
-#'   and applies the same two hold-position guards, but advances all agents together one step at a
-#'   time rather than running one agent to completion at a time.
+#' @description Moves every agent forward \code{n_steps} movement-only steps under its own iSSF and
+#'   returns only the endpoint. Each step draws \code{n_candidates} candidate steps per agent
+#'   (gamma step lengths and von Mises turn angles), scores the candidate endpoints by the habitat
+#'   and movement covariates of the cell they land in, and samples one endpoint per agent with
+#'   probability proportional to its selection weight. An agent holds position for a step when more
+#'   than half of its candidate endpoints fall outside the raster extent or when no candidate
+#'   carries positive weight. All agents advance together one step at a time.
 #'
 #'   Step lengths and turn angles do not depend on position, so they are drawn ahead of the step
-#'   loop in blocks of \code{block} steps: one \code{rgamma} call covering every agent at once
-#'   (\code{rgamma} recycles shape and scale), and one \code{circular::rvonmises} call per agent
-#'   (which accepts only a scalar kappa). Blocking bounds the pre-draw at
-#'   \code{n * block * n_candidates} doubles per array.
+#'   loop in blocks of \code{block} steps: one \code{rgamma} call covering every agent at once, and
+#'   one \code{circular::rvonmises} call per agent (which accepts only a single kappa). The size of
+#'   each pre-drawn array is \code{n * block * n_candidates}.
 #'
-#'   No state other than position and heading is touched: no foraging, no depletion, no energetics,
-#'   and the intermediate path is discarded. Because the random numbers are consumed in a different
-#'   order than a per-agent loop would consume them, the result is distributionally identical to
-#'   repeated \code{simulate_move} calls but does not reproduce them at a given seed.
+#'   No state other than position and heading is changed: there is no foraging, no forage
+#'   depletion, and no energetics, and the intermediate path is discarded.
 #'
 #' @param x0 Numeric vector of starting x coordinates, one element per agent.
 #' @param y0 Numeric vector of starting y coordinates, one element per agent.
 #' @param heading0 Numeric vector of starting headings (radians), one element per agent.
 #' @param issf A list of per-agent iSSF model objects from \code{amt::make_issf_model()}.
-#' @param move The movement data list described in \code{simulate_move}. \code{tod} is constant for
-#'   the whole burn-in.
+#' @param move A list of movement data: \code{geom} (a single-layer \code{terra::SpatRaster}
+#'   supplying the grid for \code{cellFromXY}), \code{forage}, \code{escape}, \code{canopy}
+#'   (numeric covariate vectors indexed by cell number), \code{tod} (0 for day, 1 for night;
+#'   constant for the whole burn-in), \code{ext} (the named grid extent, xmin / xmax / ymin /
+#'   ymax), and \code{n_candidates}.
 #' @param n_steps Integer. Number of burn-in steps taken by each agent.
 #' @param block Integer. Number of steps to pre-draw candidate steps for at a time.
 #'
@@ -244,8 +85,9 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
   # per-agent parameters
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) agent count, candidate count, and the movement-distribution parameters lifted out of each
-  #   agent's iSSF into vectors, so the draws below can be made for every agent at once
+  #1) the agent count, the candidate count, and each agent's movement-distribution parameters as vectors across
+  #   agents: the gamma step-length shape and scale and the von Mises turn-angle concentration (kappa) and mean
+  #   (mu)
 
   n <- length(x0)
   nc <- move$n_candidates
@@ -255,8 +97,7 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
   kappa <- vapply(issf, function(m) m$ta_$params$kappa, numeric(1))
   mu <- lapply(issf, function(m) m$ta_$params$mu)
 
-  #2) the twelve selection coefficients as one matrix with agents in rows, so a whole step's weights
-  #   form with vector arithmetic instead of a per-agent lookup
+  #2) the twelve selection coefficients of every agent as one matrix, agents in rows and coefficients in columns
 
   coef_names <- c(
     "sl_",
@@ -276,8 +117,8 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
   coef_mat <- t(vapply(issf, function(m) m$coefficients[coef_names], numeric(length(coef_names))))
   colnames(coef_mat) <- coef_names
 
-  #3) the six working coefficients, with the night offsets folded in once if the burn-in runs at
-  #   night. tod is constant for the whole burn-in, so this happens here rather than per step
+  #3) the six working coefficients: the day main effects, with each night offset added when the burn-in runs at
+  #   night (tod = 1). time of day is constant for the whole burn-in, so this is done once
 
   b_sl <- coef_mat[, "sl_"]
   b_lsl <- coef_mat[, "log(sl_)"]
@@ -299,7 +140,7 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
   # walk every agent forward
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) working position and heading, and the extent used by the outside guard
+  #1) the working position and heading of every agent, and the grid extent used by the outside-extent guard
 
   x <- x0
   y <- y0
@@ -310,12 +151,12 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
 
   while (steps_done < n_steps) {
 
-    #2) the current block of steps
+    #2) the number of steps in this block: block, or the steps remaining if fewer
 
     nb <- min(block, n_steps - steps_done)
 
-    #3) step lengths for every agent and every step in the block in a single call. matrix() fills by
-    #   column, so repeating the per-agent vector places agent i's draws in row i
+    #3) candidate step lengths for every agent and every step in the block, in one gamma draw. matrix() fills by
+    #   column, so repeating each agent's shape and scale places agent i's draws in row i
 
     sl_blk <- matrix(
       stats::rgamma(
@@ -326,8 +167,8 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
       nrow = n
     )
 
-    #4) turn angles one agent at a time, because circular::rvonmises accepts only a scalar kappa,
-    #   then wrapped to (-pi, pi] exactly as amt's random_numbers.vonmises_distr wraps them
+    #4) candidate turn angles, drawn one agent at a time because circular::rvonmises() accepts only a single kappa,
+    #   then wrapped to (-pi, pi]
 
     ta_blk <- matrix(0, nrow = n, ncol = nb * nc)
 
@@ -347,12 +188,13 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
       ta_blk[i, ] <- ifelse(angles > pi, angles - (2 * pi), angles)
     }
 
-    #5) consume the block one step at a time
+    #5) take the block one step at a time
 
     for (s in seq_len(nb)) {
 
-      #6) this step's candidate step lengths and turn angles, and the endpoints they imply. the
-      #   turn angle is taken relative to each agent's current heading
+      #6) this step's candidate step lengths and turn angles (the block columns for step s), and the endpoints
+      #   they imply: each turn angle is added to the agent's current heading to give a bearing, and the step
+      #   length is laid out along it
 
       cols <- ((s - 1) * nc + 1):(s * nc)
       sl <- sl_blk[, cols, drop = FALSE]
@@ -362,21 +204,22 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
       x2 <- x + sl * cos(bearing)
       y2 <- y + sl * sin(bearing)
 
-      #7) outside-extent guard, evaluated per agent
+      #7) the fraction of each agent's candidate endpoints that fall outside the grid extent
 
       frac_outside <- rowMeans(
         x2 < ext["xmin"] | x2 > ext["xmax"] | y2 < ext["ymin"] | y2 > ext["ymax"]
       )
 
-      #8) end-of-step covariates by cell index; off-raster candidates return NA and fall out as zero
-      #   weight below
+      #8) the forage, escape-terrain, and canopy values of the cell each endpoint lands in. endpoints off the
+      #   raster return NA, which becomes a zero weight below
 
       cells <- terra::cellFromXY(move$geom, cbind(as.vector(x2), as.vector(y2)))
       fo <- matrix(move$forage[cells], nrow = n)
       es <- matrix(move$escape[cells], nrow = n)
       ca <- matrix(move$canopy[cells], nrow = n)
 
-      #9) linear predictor, with each agent's coefficients recycled down its own row
+      #9) the selection linear predictor for every candidate, with each agent's coefficients recycled along its
+      #   own row
 
       w <- sl * b_sl +
         log(sl) * b_lsl +
@@ -385,8 +228,8 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
         es * b_es +
         ca * b_ca
 
-      #10) exponentiate and center WITHIN each agent's own candidate set, matching simulate_move's
-      #    per-call centering; non-finite weights become zero so they are never sampled
+      #10) each row is centered on its own finite mean before exponentiation, and non-finite weights (from NA
+      #    covariates or a zero step length) are set to zero so those candidates are never sampled
 
       finite <- is.finite(w)
       w_bar <- rowSums(ifelse(finite, w, 0)) / rowSums(finite)
@@ -394,13 +237,15 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
       w <- exp(w - w_bar)
       w[!is.finite(w)] <- 0
 
-      #11) the two hold-position conditions: more than half the candidates outside the extent, or no
-      #    candidate carrying positive weight
+      #11) the two hold-position conditions: more than half of the candidates outside the extent, or no candidate
+      #    with positive weight
 
       row_w <- rowSums(w)
       hold <- frac_outside > 0.5 | row_w <= 0
 
-      #12) sample one candidate per agent by inverse CDF across its own row of weights
+      #12) sample one candidate per agent by inverse cumulative distribution across its row of weights: a uniform
+      #    draw scaled to the row total is compared with the running sum of weights, and the first candidate whose
+      #    running sum reaches it is selected
 
       u <- stats::runif(n) * row_w
       acc <- numeric(n)
@@ -414,7 +259,8 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
         found <- found | newly
       }
 
-      #13) advance the agents that drew a step; held agents keep their position and heading
+      #13) agents that move take the selected endpoint and the bearing to it as their new heading; held agents keep
+      #    their position and heading
 
       pick <- cbind(seq_len(n), sel)
       x_new <- x2[pick]
@@ -439,80 +285,5 @@ simulate_burn_in <- function(x0, y0, heading0, issf, move, n_steps, block = 50L)
     x = x,
     y = y,
     heading = heading
-  )
-}
-
-
-#' Simulate one foraging step for a single agent
-#'
-#' @description Foraging for a living agent at its current cell. During daylight,
-#'   reads the forage density at the agent's position from the working values
-#'   vector \code{vals}, computes consumed dry matter intake via \code{calc_dmi}
-#'   (floored at available biomass), and converts the consumed intake to energy via
-#'   \code{calc_energy_i}. At night no foraging occurs and intake is zero. Reads
-#'   \code{vals} but does not modify it (to avoid copying the whole vector); the
-#'   caller performs the in-place cell depletion using the returned \code{cell}.
-#'
-#' @param x Numeric. Agent's current x coordinate.
-#' @param y Numeric. Agent's current y coordinate.
-#' @param vals Numeric vector of current forage biomass (g/cell), indexed by cell
-#'   number. Read only.
-#' @param geom A single-layer \code{terra::SpatRaster} supplying the grid geometry
-#'   for \code{cellFromXY} (the day-start forage layer). Not modified.
-#' @param is_day Logical. Whether the current hour is daylight.
-#' @param rep_status Numeric. The agent's reproductive status (1 = lactating,
-#'   0 = not). Passed through to \code{calc_dmi} to select the agent's
-#'   \code{intake_multiplier} slot.
-#' @param bm Numeric. The agent's current body mass (kg), passed to \code{calc_dmi}.
-#' @param forage_hours Numeric. Number of foraging (daylight) hours in the current
-#'   day, passed to \code{calc_dmi}.
-#' @param cell_area Numeric. Area of one raster cell (m^2), passed to
-#'   \code{calc_dmi} for the g/cell to kg/ha conversion.
-#'
-#' @return A list with elements \code{forage_consumed} (g), \code{energy_i} (kJ),
-#'   and \code{cell} (the depleted cell index, or NA at night).
-#'
-#' @importFrom terra cellFromXY
-#' @keywords internal
-simulate_forage <- function(x, y, vals, geom, is_day, rep_status, bm, forage_hours, cell_area) {
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # night gate
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) at night no foraging occurs
-
-  if (!is_day) {
-    return(list(forage_consumed = 0, energy_i = 0, cell = NA_integer_))
-  }
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # read density at the current cell
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) locate the cell and read its current biomass from the vector
-
-  cell <- terra::cellFromXY(geom, cbind(x, y))
-  density <- vals[cell]
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # compute intake and energy
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) consumed dry matter intake, floored at available biomass inside calc_dmi. the agent's
-  #   reproductive status selects its intake_multiplier slot
-
-  consumed <- calc_dmi(density, rep_status, bm, forage_hours, cell_area)
-
-  # ----------------------------------------------------------------------------------------------------------------------
-  # return intake, energy, and the cell for the caller to deplete
-  # ----------------------------------------------------------------------------------------------------------------------
-
-  #1) the caller writes forage_consumed and energy_i and depletes vals[cell]
-
-  list(
-    forage_consumed = consumed,
-    energy_i = calc_energy_i(consumed),
-    cell = cell
   )
 }

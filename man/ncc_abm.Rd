@@ -16,6 +16,23 @@ ncc_abm(
 )
 }
 \arguments{
+\item{forage_reference}{A multi-layer \code{terra::SpatRaster} of daily potential forage
+biomass (g/cell), one layer per day, with layer dates set through \code{terra::time()}.
+Layers are matched to the simulated days by date, so the raster may cover a longer window
+than the season. The first layer also defines the model grid: agent start cells, the cell
+lookups for movement and foraging, the grid extent, and the cell area.}
+
+\item{dem}{A single-layer \code{terra::SpatRaster} of elevation (m), used to compute the slope
+of each step for locomotion costs.}
+
+\item{canopy}{A single-layer \code{terra::SpatRaster} of canopy cover, used as a habitat
+covariate in movement. Values are looked up by the cell numbers of \code{forage_reference},
+so this raster must share its grid.}
+
+\item{escape}{A single-layer \code{terra::SpatRaster} of distance to escape terrain (m), used
+as a habitat covariate in movement. Values are looked up by the cell numbers of
+\code{forage_reference}, so this raster must share its grid.}
+
 \item{year}{Numeric. Calendar year the simulated season runs in, defaulting to 2024.
 Sets \code{t_start} and \code{t_end} from the stored season month-day bounds and
 refreshes the daylight schedule, then selects the \code{forage_reference} layers whose
@@ -36,6 +53,28 @@ printed as the simulation runs; if \code{FALSE}, all messages are suppressed.}
 \code{n_candidates} setting are printed when the run finishes; defaults to
 \code{FALSE}.}
 }
+\value{
+A list with two elements:
+\describe{
+\item{agents}{A named list of tibbles, one per agent, with one row per hourly time step
+holding the agent's status, position, movement, body condition, hourly intake, and
+daily energetics.}
+\item{agent_params}{A tibble of fixed individual parameters, one row per agent, as built
+by \code{create_agents}, with \code{j_post_partum} advanced through each agent's last
+day alive.}
+}
+}
 \description{
-Run the NCC Agent-Based Model
+Simulates one season of movement, foraging, energetics, and survival for a
+population of female bighorn sheep agents on a daily forage landscape. Agents are created by
+\code{create_agents} and moved through a burn-in under their own integrated step-selection
+functions (iSSFs). Each hour, every living agent then takes one movement step, with separate
+day and night selection coefficients, and during daylight eats from the cell it occupies,
+following a negative-exponential (type II) intake response to forage biomass. Grazing lowers
+realized biomass below the potential biomass in \code{forage_reference}; the shortfall is
+carried between days as a deficit and, when \code{forage_regrowth} is \code{TRUE}, recovers
+through geometric regrowth. At the end of each day, each living agent's intake energy minus
+its basal metabolism, heat increment of feeding, locomotion, and lactation costs sets its
+change in fat mass, which updates body mass and body fat. An agent dies when its fat mass
+reaches zero.
 }

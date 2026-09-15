@@ -12,9 +12,10 @@ A single iSSF model object from \code{amt::make_issf_model()}.
 \description{
 Draws one agent's 15-dimensional movement vector from the
 population-level multivariate normal distribution (\code{mvn_mu},
-\code{mvn_sigma}), exponentiates the three log-scale pooled tentative
-distribution dimensions, and builds a single iSSF model via
-\code{amt::make_issf_model()}. The model carries \code{tod_end_}
-interactions, so day and night are encoded in one model rather than two.
+\code{mvn_sigma}), exponentiates the three log-scale step-length and
+turn-angle distribution parameters, and builds a single iSSF model via
+\code{amt::make_issf_model()}. The model carries the night offsets as
+\code{:tod_end_night_end} interaction coefficients, so day and night are
+encoded in one model rather than two.
 }
 \keyword{internal}

@@ -7,12 +7,12 @@
 calc_energy_loc(x_window, y_window, sl_window, bm, dem_vals)
 }
 \arguments{
-\item{x_window}{Numeric vector of x coordinates for the 25 rows spanning the
-day's steps (the 24 step rows plus the row immediately preceding the first).}
+\item{x_window}{Numeric vector of x coordinates for the rows spanning the day's
+steps (the step rows plus the row immediately preceding the first).}
 
 \item{y_window}{Numeric vector of y coordinates, aligned with \code{x_window}.}
 
-\item{sl_window}{Numeric vector of the 24 step lengths for the day.}
+\item{sl_window}{Numeric vector of the day's step lengths.}
 
 \item{bm}{Numeric. Body mass (kg) for the day.}
 
@@ -24,10 +24,17 @@ Numeric. Locomotion energy expenditure (kJ/day).
 }
 \description{
 Returns the daily locomotion energy expenditure, summed over the
-day's 24 steps. Each step's cost is the Dailey and Hobbs (1989) distance cost
-factor (selected by the signed slope of the step) times body mass times
-horizontal step length. Slope is computed from DEM elevations at the step's
-start and end coordinates. The caller supplies the day's coordinate and step
-length windows and the body mass.
+day's steps. Each step's cost is the Dailey and Hobbs (1989) distance cost
+factor for the step's slope class, times body mass, times horizontal step
+length. Slope is computed from DEM elevations at the step's start and end
+coordinates. The caller supplies the day's coordinate and step length windows
+and the body mass.
+}
+\details{
+Elevations are looked up by cell number in \code{dem_vals}, and the cell
+numbers come from \code{terra::cellFromXY()} on the \code{dem} raster, which
+this function reads from the global environment, where \code{ncc_abm()} places
+it. All model rasters share one grid and coordinate reference system, so the
+step coordinates need no reprojection.
 }
 \keyword{internal}

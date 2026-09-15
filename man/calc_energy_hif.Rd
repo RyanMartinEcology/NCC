@@ -16,10 +16,11 @@ calc_energy_hif(bm, t)
 Numeric. Heat increment of feeding energy expenditure (kJ/day).
 }
 \description{
-Returns the daily heat increment of feeding from the Chappel and
-Hudson (1978b) per-body-mass rate, multiplied by the proportion of the diurnal
-period spent feeding (Courtemanch et al. 2014) and day length. Day length is
-read from the precomputed per-time-step \code{day_length} vector (set in
-\code{.set_defaults()} from study latitude and day-of-year).
+Returns the daily heat increment of feeding: the Chappel and
+Hudson (1978b) per-body-mass hourly rate (\code{HIF}) times body mass, times
+the proportion of the diurnal period spent feeding (\code{prop_day_forage};
+Courtemanch et al. 2014), times the day length in hours. Day length is read
+from the precomputed per-time-step \code{day_length} vector built by
+\code{.refresh_daylight()} from study latitude and day of year.
 }
 \keyword{internal}

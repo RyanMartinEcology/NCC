@@ -15,10 +15,11 @@ Called for its side effect; the return value is not used.
 \description{
 Rebuilds \code{t_start} and \code{t_end} for \code{year} from the stored
 \code{season_start_md} and \code{season_end_md}, then refreshes the daylight schedule so the
-clock and the derived vectors cannot drift apart. This is how the model is pointed at a
-different year's forage rasters; \code{ncc_abm()} calls it before reading the clock.
+clock and the daylight vectors always describe the same season. \code{ncc_abm()} calls it
+before reading the clock, so the model can be pointed at a different year's forage rasters
+through its \code{year} argument.
 
-Because \code{t_start} and \code{t_end} are derived here, assigning them directly through
+Because \code{t_start} and \code{t_end} are rebuilt here, assigning them directly through
 \code{set_param()} does not survive the next \code{ncc_abm()} call. Change the season through
 \code{season_start_md} / \code{season_end_md} and the \code{year} argument instead.
 }

@@ -19,7 +19,7 @@ A named list with elements:
 time-varying state variables.}
 \item{agent_params}{A tibble with one row per agent containing
 fixed individual parameters, including a single iSSF model object
-(\code{issf}) with tod_end_ interactions.}
+(\code{issf}) carrying the day coefficients and night offsets.}
 }
 }
 \description{
@@ -27,6 +27,6 @@ Creates a named list where each element represents an individual
 sheep agent as a tibble with one row per simulation time step containing
 only time-varying state variables. Fixed individual parameters (reproductive
 status, initial body condition, movement parameters) are stored in a
-separate \code{agent_params} dataframe. Both are returned as a named list.
+separate \code{agent_params} tibble. Both are returned as a named list.
 }
 \keyword{internal}

@@ -15,6 +15,7 @@ Numeric. Basal metabolic energy expenditure (kJ/day).
 \description{
 Returns the daily basal metabolic energy expenditure from the
 Chappel and Hudson (1980) basal metabolic rate (460 kJ * kg^-0.75 * day^-1),
-scaled by metabolic body mass.
+scaled by metabolic body mass. The returned value carries \code{unit},
+\code{source}, and \code{full_name} attributes.
 }
 \keyword{internal}

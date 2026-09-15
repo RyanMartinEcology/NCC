@@ -11,11 +11,10 @@ Called for its side effect; the return value is not used.
 }
 \description{
 Rebuilds \code{is_daylight} and \code{day_length} in \code{.ncc_env} from the
-current \code{t_start}, \code{t_end}, \code{t_delta}, and \code{study_lat}. Both vectors are
-positionally aligned with \code{seq(t_start, t_end, by = t_delta)} and are indexed by loop
-position, so they are only valid for the season they were built from. Called at load by
-\code{.set_defaults()} and again by \code{.set_season()} whenever the window moves, which is
-what keeps them from going stale against the clock.
+current \code{t_start}, \code{t_end}, \code{t_delta}, and \code{study_lat}. Both vectors have
+one element per hourly time step of \code{seq(t_start, t_end, by = t_delta)} and are indexed by
+time-step position, so they are valid only for the season they were built from. Called at load
+by \code{.set_defaults()} and again by \code{.set_season()} whenever the season window moves.
 
 Sunrise and sunset are geometric, from study latitude and day of year, with clock noon taken
 as solar noon.

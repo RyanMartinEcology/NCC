@@ -17,7 +17,7 @@ A named list of per-agent tibbles.
 \description{
 Rebuilds the per-agent output tibbles from the internal numeric matrices, restoring
 the constant \code{datetime} and \code{id} columns and decoding the numeric \code{status} code
-back to \code{"ALIVE"} / \code{"DEAD"} / \code{NA}. The column set and order match
-\code{create_agents} exactly, so the result is value-identical to running the model on tibbles.
+back to \code{"ALIVE"} / \code{"DEAD"} / \code{NA}. The columns and their order match the
+tibbles built by \code{create_agents}.
 }
 \keyword{internal}

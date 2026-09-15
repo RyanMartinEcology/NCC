@@ -1,20 +1,25 @@
-# vec_move.R - vectorized hourly move step. A single-step twin of simulate_burn_in's inner step
-#   that additionally returns the realized step length and turn angle, so the season loop can write
-#   the same five movement columns per agent that simulate_move returns. Operates on the living
-#   subset handed to it; held agents (cornered or zero-weight) keep position and heading with a
-#   zero-length step, matching simulate_move's guards.
-
 #' Advance a set of agents one movement step at once
+#'
+#' @description Draws one movement step for every agent supplied, from each agent's own step-length
+#'   and turn-angle distributions and selection coefficients. For each agent, \code{n_candidates}
+#'   candidate steps are drawn (gamma step lengths and von Mises turn angles), the candidate
+#'   endpoints are scored by the habitat and movement covariates of the cell they land in, and one
+#'   endpoint is sampled with probability proportional to its selection weight. An agent holds
+#'   position, keeping its prior location and heading with a zero-length step, when more than half
+#'   of its candidate endpoints fall outside the raster extent or when no candidate carries positive
+#'   weight (every endpoint on a no-data cell).
 #'
 #' @param x Numeric vector of current x coordinates, one element per agent.
 #' @param y Numeric vector of current y coordinates.
 #' @param heading Numeric vector of current headings (radians).
-#' @param prm List of per-agent movement parameters already subset to these agents and with the
-#'   night coefficient offsets already folded in when the hour is night: \code{shape},
-#'   \code{scale}, \code{kappa} (numeric vectors), \code{mu} (list), and the six working
-#'   coefficient vectors \code{b_sl}, \code{b_lsl}, \code{b_cta}, \code{b_fo}, \code{b_es},
-#'   \code{b_ca}.
-#' @param move The movement data list described in \code{simulate_move}.
+#' @param prm List of per-agent movement parameters, subset to these agents, with the night
+#'   coefficient offsets already added when the hour is night: \code{shape}, \code{scale},
+#'   \code{kappa} (numeric vectors), \code{mu} (list), and the six selection coefficient vectors
+#'   \code{b_sl}, \code{b_lsl}, \code{b_cta}, \code{b_fo}, \code{b_es}, \code{b_ca}.
+#' @param move A list of movement data: \code{geom} (a single-layer \code{terra::SpatRaster}
+#'   supplying the grid for \code{cellFromXY}), \code{forage}, \code{escape}, \code{canopy}
+#'   (numeric covariate vectors indexed by cell number), \code{ext} (the named grid extent, xmin /
+#'   xmax / ymin / ymax), and \code{n_candidates}.
 #'
 #' @return A numeric matrix with one row per agent and columns \code{x}, \code{y},
 #'   \code{step_length}, \code{turn_angle}, \code{heading}.
@@ -31,8 +36,8 @@ simulate_move_step_vec <- function(x, y, heading, prm, move) {
   # candidate draws
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) step lengths for every agent in one call; matrix() fills by column, so repeating the
-  #   per-agent vector places agent i's draws in row i
+  #1) candidate step lengths for every agent in one gamma draw. matrix() fills by column, so repeating each agent's
+  #   shape and scale nc times places agent i's draws in row i
 
   sl <- matrix(
     stats::rgamma(
@@ -43,8 +48,8 @@ simulate_move_step_vec <- function(x, y, heading, prm, move) {
     nrow = n
   )
 
-  #2) turn angles one agent at a time (circular::rvonmises accepts only a scalar kappa), wrapped to
-  #   (-pi, pi] as amt wraps them
+  #2) candidate turn angles, drawn one agent at a time because circular::rvonmises() accepts only a single kappa,
+  #   then wrapped to (-pi, pi]
 
   ta <- matrix(0, nrow = n, ncol = nc)
 
@@ -62,7 +67,8 @@ simulate_move_step_vec <- function(x, y, heading, prm, move) {
     ta[i, ] <- ifelse(angles > pi, angles - (2 * pi), angles)
   }
 
-  #3) candidate endpoints from each agent's current position and heading
+  #3) candidate endpoints: each turn angle is added to the agent's current heading to give a bearing, and the step
+  #   length is laid out along it
 
   bearing <- heading + ta
   x2 <- x + sl * cos(bearing)
@@ -72,21 +78,23 @@ simulate_move_step_vec <- function(x, y, heading, prm, move) {
   # guards and weights
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) outside-extent guard per agent
+  #1) the fraction of each agent's candidate endpoints that fall outside the grid extent
 
   frac_outside <- rowMeans(
     x2 < ext["xmin"] | x2 > ext["xmax"] | y2 < ext["ymin"] | y2 > ext["ymax"]
   )
 
-  #2) end-of-step covariates by cell; off-raster candidates return NA and fall out as zero weight
+  #2) the forage, escape-terrain, and canopy values of the cell each endpoint lands in. endpoints off the raster
+  #   return NA, which becomes a zero weight below
 
   cells <- terra::cellFromXY(move$geom, cbind(as.vector(x2), as.vector(y2)))
   fo <- matrix(move$forage[cells], nrow = n)
   es <- matrix(move$escape[cells], nrow = n)
   ca <- matrix(move$canopy[cells], nrow = n)
 
-  #3) linear predictor with each agent's coefficients recycled down its own row, then per-row
-  #   centering and exponentiation exactly as simulate_move does per call
+  #3) the selection linear predictor for every candidate, with each agent's coefficients recycled along its own
+  #   row. each row is centered on its own finite mean before exponentiation, and non-finite weights (from NA
+  #   covariates or a zero step length) are set to zero so those candidates are never sampled
 
   w <- sl * prm$b_sl +
     log(sl) * prm$b_lsl +
@@ -101,7 +109,8 @@ simulate_move_step_vec <- function(x, y, heading, prm, move) {
   w <- exp(w - w_bar)
   w[!is.finite(w)] <- 0
 
-  #4) the two hold-position conditions
+  #4) the two hold-position conditions: more than half of the candidates outside the extent, or no candidate with
+  #   positive weight
 
   row_w <- rowSums(w)
   hold <- frac_outside > 0.5 | row_w <= 0
@@ -110,7 +119,9 @@ simulate_move_step_vec <- function(x, y, heading, prm, move) {
   # select one candidate per agent and assemble the step
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) inverse-CDF sample across each agent's own row of weights
+  #1) sample one candidate per agent by inverse cumulative distribution across its row of weights: a uniform draw
+  #   scaled to the row total is compared with the running sum of weights, and the first candidate whose running
+  #   sum reaches it is selected
 
   u <- stats::runif(n) * row_w
   acc <- numeric(n)
@@ -126,8 +137,8 @@ simulate_move_step_vec <- function(x, y, heading, prm, move) {
 
   pick <- cbind(seq_len(n), sel)
 
-  #2) moved agents take the selected candidate (step length and turn angle are the drawn values
-  #   that generated the endpoint); held agents keep position and heading with a zero-length step
+  #2) agents that move take the selected candidate's endpoint, step length, turn angle, and bearing as their new
+  #   heading; held agents keep their position and heading with a zero-length step and zero turn angle
 
   out_x <- ifelse(hold, x, x2[pick])
   out_y <- ifelse(hold, y, y2[pick])

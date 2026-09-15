@@ -4,10 +4,8 @@
 #'   of the next. The deficit is the amount (g/cell) by which grazing has pushed
 #'   realized biomass below potential; realized biomass on any day is
 #'   \code{potential - deficit}. The deficit is first capped at the next day's
-#'   potential so that, after decay, realized biomass on the next day cannot fall
-#'   below zero (the deficit can never represent more missing biomass than the
-#'   next day's potential supports). It is then decayed by a fixed fraction
-#'   (\code{plant_regrowth_rate}, a 21-day half-life; Oesterheld 1992), shrinking
+#'   potential so that realized biomass on the next day cannot fall below zero.
+#'   It is then decayed by a fixed fraction (\code{plant_regrowth_rate}), shrinking
 #'   geometrically toward zero. An ungrazed cell has zero deficit and therefore
 #'   sits exactly at potential every day, regardless of the seasonal phenology of
 #'   potential.
@@ -15,7 +13,7 @@
 #' @param deficit Numeric vector of the day's grazing deficit (g/cell), indexed by
 #'   cell number, after the day's consumption has been added.
 #' @param potential_next Numeric vector of the next day's potential biomass
-#'   (g/cell), indexed by cell number (the next layer of forage_reference).
+#'   (g/cell), indexed by cell number (the next layer of \code{forage_reference}).
 #' @param regrowth Logical. If \code{TRUE} (the default), the capped deficit is
 #'   decayed by \code{plant_regrowth_rate} (geometric regrowth); if \code{FALSE},
 #'   geometric regrowth is skipped and the capped deficit is returned undecayed.
@@ -29,16 +27,17 @@ update_forage <- function(deficit, potential_next, regrowth = TRUE) {
   # cap then decay the deficit
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) cap the deficit at the next day's potential so realized biomass stays >= 0
+  #1) cap the deficit at the next day's potential biomass, so realized biomass (potential minus deficit) cannot fall
+  #   below zero
 
   deficit <- pmin(deficit, potential_next)
 
-  #2) if geometric regrowth is off, return the capped deficit undecayed so grazed forage does not
-  #   recover
+  #2) when regrowth is FALSE, return the capped deficit without decay, so grazed forage does not recover
 
   if (!regrowth) return(deficit)
 
-  #3) recover a fixed fraction of the capped deficit (geometric regrowth)
+  #3) geometric regrowth: the deficit shrinks by the daily regrowth rate, so a fixed fraction of the missing biomass
+  #   is recovered each day
 
   rate <- get_param("plant_regrowth_rate")
 
@@ -70,21 +69,21 @@ update_mass <- function(bm, ifbfat, fat_change) {
   # propagate the fat compartment, holding lean mass constant
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) current lean and fat compartments
+  #1) the current lean and fat compartments (kg)
 
   lean_mass <- calc_lean_mass(bm, ifbfat)
   fat_mass <- calc_fat_mass(bm, ifbfat)
 
-  #2) apply the day's fat-mass change, floored at zero
+  #2) add the day's fat-mass change, floored at zero
 
   fat_mass <- max(fat_mass + fat_change, 0)
 
-  #3) recombine into body mass and body fat fraction
+  #3) new body mass is the unchanged lean mass plus the new fat mass; new body fat is the new fat mass as a
+  #   fraction of new body mass. unname() strips any names carried in from the inputs so the two elements are
+  #   named exactly bm and ifbfat
 
   bm_new <- lean_mass + fat_mass
 
-  # unname the values so the two elements carry exactly the names the caller reads
-  #   by (bm, ifbfat); a named input would otherwise compound the names
   c(bm = unname(bm_new), ifbfat = unname(fat_mass / bm_new))
 }
 
@@ -110,7 +109,7 @@ update_status <- function(fat_mass, j_post_partum) {
   # survival and days post partum
   # ----------------------------------------------------------------------------------------------------------------------
 
-  #1) survival: an agent dies once its fat reserves are exhausted (fat mass at or below zero)
+  #1) survival: the agent is dead once its fat mass is at or below zero, otherwise alive
 
   status <- if (fat_mass <= 0) "DEAD" else "ALIVE"
 

@@ -16,6 +16,5 @@ Numeric. Daily fat-mass change (kg).
 Converts the day's net energy balance into a change in fat mass at
 the energy density of fat (\code{E_fat}), with no conversion loss in either
 direction: a surplus deposits and a deficit mobilizes at the same rate.
-Operates on a scalar; the caller writes the returned value to the agent's row.
 }
 \keyword{internal}
