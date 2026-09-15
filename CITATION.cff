@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "NCC: an agent-based model of nutritional carrying capacity for large herbivores"
+version: 1.3.0
+date-released: 2026-09-15
+license: GPL-3.0
+repository-code: "https://github.com/RyanMartinEcology/NCC"
+authors:
+  - family-names: Martin
+    given-names: Ryan B.
+    orcid: "https://orcid.org/0009-0006-6509-4767"
+    affiliation: "Department of Fish and Wildlife Sciences, University of Idaho"
+abstract: >-
+  An R package that simulates nutritional carrying capacity for bighorn sheep
+  (Ovis canadensis) with an agent-based model. Simulated females move under
+  individual integrated step-selection functions, forage on a daily biomass
+  landscape, and gain or lose body fat through an energetics submodel.
+keywords:
+  - agent-based model
+  - nutritional carrying capacity
+  - bighorn sheep
+  - large herbivores
+  - movement ecology

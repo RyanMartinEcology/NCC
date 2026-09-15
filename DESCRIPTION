@@ -3,7 +3,7 @@ Title: A package with tools to run an agent-based model of nutritional carrying 
 Version: 1.3.0
 Authors@R: person("Ryan Martin", email = "ryanmartin@uidaho.edu", role = c("aut", "cre"))
 Description: Simulates nutritional carrying capacity for bighorn sheep in the Teton range using agent-based modeling.
-License: MIT
+License: GPL-3
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
